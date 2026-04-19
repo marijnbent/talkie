@@ -23,6 +23,9 @@ final class GeneralSettingsViewModel: ObservableObject {
     }
     var deepgramLanguage: DeepgramLanguage { settingsStore.deepgramLanguage }
     var starredDeepgramLanguages: [DeepgramLanguage] { settingsStore.starredDeepgramLanguages }
+    var appTranscriptionLanguageOverrides: [AppTranscriptionLanguageOverride] {
+        settingsStore.appTranscriptionLanguageOverrides
+    }
     var audioInputHelpText: String {
         let resolved = resolvedAudioInputSelection
 
@@ -50,10 +53,33 @@ final class GeneralSettingsViewModel: ObservableObject {
         )
     }
 
+    func bindingForAppTranscriptionLanguageOverrideID(
+        _ overrideID: UUID
+    ) -> Binding<AppTranscriptionLanguageOverride>? {
+        guard let index = settingsStore.appTranscriptionLanguageOverrides.firstIndex(where: { $0.id == overrideID }) else {
+            return nil
+        }
+
+        return Binding(
+            get: { self.settingsStore.appTranscriptionLanguageOverrides[index] },
+            set: { self.settingsStore.appTranscriptionLanguageOverrides[index] = $0 }
+        )
+    }
+
     func menuBarLanguages(matching query: String) -> [DeepgramLanguage] {
         DeepgramLanguage.sortedForSettings(
             DeepgramLanguage.allCases.filter { $0.matchesSearch(query) },
             starred: Set(settingsStore.starredDeepgramLanguages)
+        )
+    }
+
+    func appOverrideLanguages(for currentLanguage: DeepgramLanguage) -> [DeepgramLanguage] {
+        let starredLanguages = settingsStore.starredDeepgramLanguages
+        let languages = starredLanguages.contains(currentLanguage)
+            ? starredLanguages
+            : starredLanguages + [currentLanguage]
+        return DeepgramLanguage.sortedForMenuBar(
+            DeepgramLanguage.normalizedStarredLanguages(languages, fallback: [currentLanguage])
         )
     }
 
@@ -73,6 +99,23 @@ final class GeneralSettingsViewModel: ObservableObject {
         }
 
         settingsStore.starredDeepgramLanguages.append(language)
+    }
+
+    func upsertAppTranscriptionLanguageOverride(
+        appBundleIdentifier: String,
+        appDisplayName: String,
+        language: DeepgramLanguage? = nil
+    ) {
+        TranscriptionLanguageRoutingService.upsertAppOverride(
+            appBundleIdentifier: appBundleIdentifier,
+            appDisplayName: appDisplayName,
+            language: language,
+            settings: settingsStore
+        )
+    }
+
+    func removeAppTranscriptionLanguageOverride(id: UUID) {
+        settingsStore.appTranscriptionLanguageOverrides.removeAll { $0.id == id }
     }
 
     func refreshPermissions() {
@@ -298,6 +341,11 @@ final class HistoryViewModel: ObservableObject {
         self.sessionState = sessionState
         self.enhancer = enhancer
         self.transcriber = transcriber
+        settingsStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         sessionState.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -307,6 +355,17 @@ final class HistoryViewModel: ObservableObject {
 
     var transcriptHistory: [TranscriptHistoryEntry] {
         sessionState.transcriptHistory
+    }
+
+    var historyLimit: HistoryLimit {
+        settingsStore.historyLimit
+    }
+
+    func binding<Value>(for keyPath: ReferenceWritableKeyPath<SettingsStore, Value>) -> Binding<Value> {
+        Binding(
+            get: { self.settingsStore[keyPath: keyPath] },
+            set: { self.settingsStore[keyPath: keyPath] = $0 }
+        )
     }
 
     func isExpanded(_ entryID: UUID) -> Bool {

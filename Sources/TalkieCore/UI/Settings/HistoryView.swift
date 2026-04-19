@@ -5,6 +5,13 @@ struct HistoryView: View {
 
     var body: some View {
         Form {
+            if viewModel.historyLimit == .none {
+                Section {
+                    Text("History is off because Keep history is set to None in General settings.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if viewModel.transcriptHistory.isEmpty {
                 Section {
                     Text("No transcriptions yet.")

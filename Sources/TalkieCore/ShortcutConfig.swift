@@ -131,6 +131,33 @@ struct ShortcutConfig: Codable, Identifiable, Equatable {
     }
 }
 
+enum AppOverrideSupport {
+    static func normalizeBundleIdentifier(_ bundleIdentifier: String?) -> String? {
+        let trimmed = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased()
+    }
+
+    static func cleanedDisplayName(_ displayName: String?, fallback: String) -> String {
+        let cleanedDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleanedDisplayName.isEmpty ? fallback : cleanedDisplayName
+    }
+
+    static func sortByDisplayNameAndBundleIdentifier<T>(
+        _ entries: inout [T],
+        displayName: KeyPath<T, String>,
+        bundleIdentifier: KeyPath<T, String>
+    ) {
+        entries.sort {
+            let nameOrder = $0[keyPath: displayName].localizedCaseInsensitiveCompare($1[keyPath: displayName])
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            return $0[keyPath: bundleIdentifier].localizedCaseInsensitiveCompare($1[keyPath: bundleIdentifier]) == .orderedAscending
+        }
+    }
+}
+
 struct AppPromptOverride: Codable, Identifiable, Equatable {
     var id: UUID
     var appBundleIdentifier: String
@@ -150,13 +177,34 @@ struct AppPromptOverride: Codable, Identifiable, Equatable {
     }
 
     var normalizedAppBundleIdentifier: String? {
-        Self.normalizeBundleIdentifier(appBundleIdentifier)
+        AppOverrideSupport.normalizeBundleIdentifier(appBundleIdentifier)
     }
 
     static func normalizeBundleIdentifier(_ bundleIdentifier: String?) -> String? {
-        let trimmed = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.lowercased()
+        AppOverrideSupport.normalizeBundleIdentifier(bundleIdentifier)
+    }
+}
+
+struct AppTranscriptionLanguageOverride: Codable, Identifiable, Equatable {
+    var id: UUID
+    var appBundleIdentifier: String
+    var appDisplayName: String
+    var language: DeepgramLanguage
+
+    init(
+        id: UUID = UUID(),
+        appBundleIdentifier: String,
+        appDisplayName: String,
+        language: DeepgramLanguage
+    ) {
+        self.id = id
+        self.appBundleIdentifier = appBundleIdentifier
+        self.appDisplayName = appDisplayName
+        self.language = language
+    }
+
+    var normalizedAppBundleIdentifier: String? {
+        AppOverrideSupport.normalizeBundleIdentifier(appBundleIdentifier)
     }
 }
 

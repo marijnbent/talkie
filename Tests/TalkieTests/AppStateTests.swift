@@ -10,6 +10,7 @@ final class AppStateTests: XCTestCase {
     private let escToCancelDefaultsKey = "Talkie.EscToCancelRecording"
     private let playSoundEffectsDefaultsKey = "Talkie.PlaySoundEffects"
     private let restoreClipboardAfterPasteDefaultsKey = "Talkie.RestoreClipboardAfterPaste"
+    private let showSelectedLanguageInMenuBarDefaultsKey = "Talkie.ShowSelectedLanguageInMenuBar"
     private let audioInputSelectionDefaultsKey = "Talkie.AudioInputSelection"
 
     override func setUp() {
@@ -21,6 +22,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: escToCancelDefaultsKey)
         UserDefaults.standard.removeObject(forKey: playSoundEffectsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
     }
 
@@ -32,6 +34,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: escToCancelDefaultsKey)
         UserDefaults.standard.removeObject(forKey: playSoundEffectsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
         super.tearDown()
     }
@@ -221,6 +224,19 @@ final class AppStateTests: XCTestCase {
 
         let restored = AppState()
         XCTAssertTrue(restored.playSoundEffects)
+    }
+
+    func testShowSelectedLanguageInMenuBarDefaultsToFalse() {
+        let state = AppState()
+        XCTAssertFalse(state.showSelectedLanguageInMenuBar)
+    }
+
+    func testShowSelectedLanguageInMenuBarPersists() {
+        let state = AppState()
+        state.showSelectedLanguageInMenuBar = true
+
+        let restored = AppState()
+        XCTAssertTrue(restored.showSelectedLanguageInMenuBar)
     }
 
     // MARK: - Clipboard Restore

@@ -71,8 +71,12 @@ final class RuntimeCoordinator {
             audioInputSelectionProvider: { [weak settingsStore] in
                 AudioInputCatalog.resolvedSelection(settingsStore?.audioInputSelection ?? .systemDefault)
             },
-            languageProvider: { [weak settingsStore] in
-                settingsStore?.deepgramLanguage ?? .automatic
+            resolvedTranscriptionLanguageProvider: { [weak settingsStore] activeAppBundleIdentifier in
+                guard let settingsStore else { return .automatic }
+                return TranscriptionLanguageRoutingService.resolvedLanguage(
+                    settings: settingsStore,
+                    activeAppBundleIdentifier: activeAppBundleIdentifier
+                )
             },
             apiKeyProvider: { [weak settingsStore] in
                 settingsStore?.apiKey ?? ""

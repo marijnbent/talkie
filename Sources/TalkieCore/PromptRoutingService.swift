@@ -101,8 +101,10 @@ final class PromptRoutingService {
         let resolvedPromptID = promptID ?? settings.shortcuts[shortcutIndex].promptID ?? settings.prompts.first?.id
         guard let resolvedPromptID else { return }
 
-        let cleanedDisplayName = appDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = cleanedDisplayName.isEmpty ? appBundleIdentifier : cleanedDisplayName
+        let displayName = AppOverrideSupport.cleanedDisplayName(
+            appDisplayName,
+            fallback: appBundleIdentifier
+        )
 
         if let overrideIndex = settings.shortcuts[shortcutIndex].appPromptOverrides.firstIndex(where: {
             $0.normalizedAppBundleIdentifier == normalizedBundleIdentifier
@@ -120,13 +122,11 @@ final class PromptRoutingService {
             )
         }
 
-        settings.shortcuts[shortcutIndex].appPromptOverrides.sort {
-            let nameOrder = $0.appDisplayName.localizedCaseInsensitiveCompare($1.appDisplayName)
-            if nameOrder != .orderedSame {
-                return nameOrder == .orderedAscending
-            }
-            return $0.appBundleIdentifier.localizedCaseInsensitiveCompare($1.appBundleIdentifier) == .orderedAscending
-        }
+        AppOverrideSupport.sortByDisplayNameAndBundleIdentifier(
+            &settings.shortcuts[shortcutIndex].appPromptOverrides,
+            displayName: \.appDisplayName,
+            bundleIdentifier: \.appBundleIdentifier
+        )
     }
 
     static func migrateLegacyEnhancementPromptsIfNeeded(

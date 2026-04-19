@@ -11,6 +11,13 @@ enum MenuBarLanguageModel {
         "Language: \(currentLanguage.displayName)"
     }
 
+    static func statusItemTitle(
+        for currentLanguage: DeepgramLanguage,
+        showsSelectedLanguage: Bool
+    ) -> String {
+        showsSelectedLanguage ? currentLanguage.menuBarAbbreviation : ""
+    }
+
     static func submenuItems(
         currentLanguage: DeepgramLanguage,
         starredLanguages: [DeepgramLanguage]
@@ -53,6 +60,7 @@ final class MenuBarController: NSObject {
 
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Talkie")
+            button.imagePosition = .imageLeading
         }
 
         bindSettings()
@@ -61,15 +69,20 @@ final class MenuBarController: NSObject {
 
     private func bindSettings() {
         settingsStore.$deepgramLanguage
-            .combineLatest(settingsStore.$starredDeepgramLanguages)
+            .combineLatest(
+                settingsStore.$starredDeepgramLanguages,
+                settingsStore.$showSelectedLanguageInMenuBar
+            )
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _, _, _ in
                 self?.rebuildMenu()
             }
             .store(in: &cancellables)
     }
 
     private func rebuildMenu() {
+        configureStatusItemButton()
+
         let menu = NSMenu()
 
         let openItem = NSMenuItem(title: "Settings", action: #selector(openMainWindow), keyEquivalent: ",")
@@ -95,6 +108,14 @@ final class MenuBarController: NSObject {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    private func configureStatusItemButton() {
+        guard let button = statusItem.button else { return }
+        button.title = MenuBarLanguageModel.statusItemTitle(
+            for: settingsStore.deepgramLanguage,
+            showsSelectedLanguage: settingsStore.showSelectedLanguageInMenuBar
+        )
     }
 
     private func makeLanguageSubmenu() -> NSMenu {

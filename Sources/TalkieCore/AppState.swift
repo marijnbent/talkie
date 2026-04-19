@@ -192,6 +192,11 @@ final class AppState: ObservableObject {
         set { settingsStore.restoreClipboardAfterPaste = newValue }
     }
 
+    var showSelectedLanguageInMenuBar: Bool {
+        get { settingsStore.showSelectedLanguageInMenuBar }
+        set { settingsStore.showSelectedLanguageInMenuBar = newValue }
+    }
+
     var overlayPosition: OverlayPosition {
         get { settingsStore.overlayPosition }
         set { settingsStore.overlayPosition = newValue }

@@ -66,6 +66,7 @@ final class OverlayWindowController {
 
         guard let screen = NSScreen.main else {
             panel.orderOut(nil)
+            self.panel = nil
             return
         }
 
@@ -82,6 +83,9 @@ final class OverlayWindowController {
                 guard let self else { return }
                 guard self.animationID == hideID, !self.isShowing else { return }
                 self.panel?.orderOut(nil)
+                // Release the hidden panel so its SwiftUI repeatForever animations
+                // do not keep ticking while Talkie is idle.
+                self.panel = nil
             }
         }
     }

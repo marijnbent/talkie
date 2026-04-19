@@ -15,8 +15,10 @@ final class SettingsStore: ObservableObject {
     static let playSoundEffectsKey = "Talkie.PlaySoundEffects"
     static let muteMediaDuringRecordingKey = "Talkie.MuteMediaDuringRecording"
     static let restoreClipboardAfterPasteKey = "Talkie.RestoreClipboardAfterPaste"
+    static let showSelectedLanguageInMenuBarKey = "Talkie.ShowSelectedLanguageInMenuBar"
     static let overlayPositionKey = "Talkie.OverlayPosition"
     static let audioInputSelectionKey = "Talkie.AudioInputSelection"
+    static let appTranscriptionLanguageOverridesKey = "Talkie.AppTranscriptionLanguageOverrides"
 
     private let defaults: UserDefaults
 
@@ -78,6 +80,12 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var showSelectedLanguageInMenuBar: Bool {
+        didSet {
+            defaults.set(showSelectedLanguageInMenuBar, forKey: Self.showSelectedLanguageInMenuBarKey)
+        }
+    }
+
     @Published var overlayPosition: OverlayPosition {
         didSet {
             defaults.set(overlayPosition.rawValue, forKey: Self.overlayPositionKey)
@@ -118,6 +126,14 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var appTranscriptionLanguageOverrides: [AppTranscriptionLanguageOverride] {
+        didSet {
+            if let data = try? JSONEncoder().encode(appTranscriptionLanguageOverrides) {
+                defaults.set(data, forKey: Self.appTranscriptionLanguageOverridesKey)
+            }
+        }
+    }
+
     var hasOpenRouterCredentials: Bool {
         !openRouterApiKey.trimmed.isEmpty && !openRouterModel.trimmed.isEmpty
     }
@@ -130,6 +146,7 @@ final class SettingsStore: ObservableObject {
         playSoundEffects = (defaults.object(forKey: Self.playSoundEffectsKey) as? Bool) ?? false
         muteMediaDuringRecording = (defaults.object(forKey: Self.muteMediaDuringRecordingKey) as? Bool) ?? false
         restoreClipboardAfterPaste = (defaults.object(forKey: Self.restoreClipboardAfterPasteKey) as? Bool) ?? false
+        showSelectedLanguageInMenuBar = (defaults.object(forKey: Self.showSelectedLanguageInMenuBarKey) as? Bool) ?? false
 
         let savedPosition = defaults.string(forKey: Self.overlayPositionKey)
         overlayPosition = savedPosition.flatMap(OverlayPosition.init(rawValue:)) ?? .top
@@ -146,6 +163,13 @@ final class SettingsStore: ObservableObject {
 
         let savedLimit = defaults.integer(forKey: Self.historyLimitKey)
         historyLimit = HistoryLimit(rawValue: savedLimit) ?? .ten
+
+        if let data = defaults.data(forKey: Self.appTranscriptionLanguageOverridesKey),
+           let decoded = try? JSONDecoder().decode([AppTranscriptionLanguageOverride].self, from: data) {
+            appTranscriptionLanguageOverrides = decoded
+        } else {
+            appTranscriptionLanguageOverrides = []
+        }
 
         if let data = defaults.data(forKey: Self.shortcutsKey),
            let decoded = try? JSONDecoder().decode([ShortcutConfig].self, from: data),

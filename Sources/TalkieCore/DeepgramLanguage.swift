@@ -97,6 +97,18 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    var menuBarAbbreviation: String {
+        switch self {
+        case .automatic:
+            return "AUTO"
+        default:
+            return rawValue
+                .split(separator: "-", maxSplits: 1)
+                .first?
+                .uppercased() ?? rawValue.uppercased()
+        }
+    }
+
     var displayName: String {
         switch self {
         case .automatic:

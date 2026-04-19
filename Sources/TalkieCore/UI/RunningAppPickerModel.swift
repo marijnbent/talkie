@@ -21,17 +21,19 @@ enum RunningAppPickerDataSource {
         from entries: [RunningApplicationSnapshotEntry],
         excludingBundleIdentifier: String?
     ) -> [RunningApplicationOption] {
-        let excludedBundleIdentifier = AppPromptOverride.normalizeBundleIdentifier(excludingBundleIdentifier)
+        let excludedBundleIdentifier = AppOverrideSupport.normalizeBundleIdentifier(excludingBundleIdentifier)
         var uniqueOptions: [String: RunningApplicationOption] = [:]
 
         for entry in entries {
-            guard let normalizedBundleIdentifier = AppPromptOverride.normalizeBundleIdentifier(entry.bundleIdentifier) else {
+            guard let normalizedBundleIdentifier = AppOverrideSupport.normalizeBundleIdentifier(entry.bundleIdentifier) else {
                 continue
             }
             guard normalizedBundleIdentifier != excludedBundleIdentifier else { continue }
 
-            let cleanedDisplayName = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let displayName = cleanedDisplayName.isEmpty ? normalizedBundleIdentifier : cleanedDisplayName
+            let displayName = AppOverrideSupport.cleanedDisplayName(
+                entry.displayName,
+                fallback: normalizedBundleIdentifier
+            )
             guard !displayName.isEmpty else { continue }
 
             if uniqueOptions[normalizedBundleIdentifier] == nil {
@@ -43,13 +45,13 @@ enum RunningAppPickerDataSource {
             }
         }
 
-        return uniqueOptions.values.sorted {
-            let nameOrder = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
-            if nameOrder != .orderedSame {
-                return nameOrder == .orderedAscending
-            }
-            return $0.bundleIdentifier.localizedCaseInsensitiveCompare($1.bundleIdentifier) == .orderedAscending
-        }
+        var options = Array(uniqueOptions.values)
+        AppOverrideSupport.sortByDisplayNameAndBundleIdentifier(
+            &options,
+            displayName: \.displayName,
+            bundleIdentifier: \.bundleIdentifier
+        )
+        return options
     }
 }
 

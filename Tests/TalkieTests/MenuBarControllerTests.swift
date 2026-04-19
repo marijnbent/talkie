@@ -37,4 +37,22 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(items.map(\.language), [.automatic, .english])
         XCTAssertFalse(items.contains(where: { $0.isSelected }))
     }
+
+    func testStatusItemTitleIsEmptyWhenLanguageDisplayIsDisabled() {
+        XCTAssertEqual(
+            MenuBarLanguageModel.statusItemTitle(for: .english, showsSelectedLanguage: false),
+            ""
+        )
+    }
+
+    func testStatusItemTitleUsesUppercaseBaseLanguageCode() {
+        XCTAssertEqual(
+            MenuBarLanguageModel.statusItemTitle(for: .dutch, showsSelectedLanguage: true),
+            "NL"
+        )
+        XCTAssertEqual(
+            MenuBarLanguageModel.statusItemTitle(for: .englishBritish, showsSelectedLanguage: true),
+            "EN"
+        )
+    }
 }

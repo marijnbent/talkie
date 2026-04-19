@@ -29,7 +29,7 @@ final class RecordingRuntime {
 
     private let activeApplicationProvider: () -> ActiveApplicationContext?
     private let audioInputSelectionProvider: () -> ResolvedAudioInputSelection
-    private let languageProvider: () -> DeepgramLanguage
+    private let resolvedTranscriptionLanguageProvider: (String?) -> DeepgramLanguage
     private let apiKeyProvider: () -> String
     private let resolvedEnhancementPromptProvider: (UUID?, String?) -> EnhancementPromptContext?
     private let playSoundEffectsEnabledProvider: () -> Bool
@@ -85,7 +85,7 @@ final class RecordingRuntime {
         clock: ClockPort,
         activeApplicationProvider: @escaping () -> ActiveApplicationContext?,
         audioInputSelectionProvider: @escaping () -> ResolvedAudioInputSelection,
-        languageProvider: @escaping () -> DeepgramLanguage,
+        resolvedTranscriptionLanguageProvider: @escaping (String?) -> DeepgramLanguage,
         apiKeyProvider: @escaping () -> String,
         resolvedEnhancementPromptProvider: @escaping (UUID?, String?) -> EnhancementPromptContext?,
         playSoundEffectsEnabledProvider: @escaping () -> Bool,
@@ -105,7 +105,7 @@ final class RecordingRuntime {
         self.clock = clock
         self.activeApplicationProvider = activeApplicationProvider
         self.audioInputSelectionProvider = audioInputSelectionProvider
-        self.languageProvider = languageProvider
+        self.resolvedTranscriptionLanguageProvider = resolvedTranscriptionLanguageProvider
         self.apiKeyProvider = apiKeyProvider
         self.resolvedEnhancementPromptProvider = resolvedEnhancementPromptProvider
         self.playSoundEffectsEnabledProvider = playSoundEffectsEnabledProvider
@@ -204,7 +204,8 @@ final class RecordingRuntime {
                 ownerShortcutID,
                 activeApplication?.bundleIdentifier
             )
-            pendingTranscriptionLanguage = languageProvider()
+            let transcriptionLanguage = resolvedTranscriptionLanguageProvider(activeApplication?.bundleIdentifier)
+            pendingTranscriptionLanguage = transcriptionLanguage
 
             let format = try audioCapture.start()
             currentRecordingFormat = format
@@ -228,7 +229,7 @@ final class RecordingRuntime {
             } else {
                 onLog?("Input: \(resolvedAudioInput.displayName).", .info)
             }
-            deepgram.connect(apiKey: apiKey, format: format, language: languageProvider())
+            deepgram.connect(apiKey: apiKey, format: format, language: transcriptionLanguage)
 
             let audioLevelPublishInterval: UInt64 = 33_000_000
             var smoothedAudioLevel: CGFloat = 0
@@ -262,7 +263,7 @@ final class RecordingRuntime {
                 onMuteForRecording?()
             }
             playSound("Tink")
-            onLog?("Language: \(languageProvider().displayName) (\(languageProvider().deepgramCode)).", .info)
+            onLog?("Language: \(transcriptionLanguage.displayName) (\(transcriptionLanguage.deepgramCode)).", .info)
             onLog?("Listening started.", .info)
         } catch {
             phase = .idle
@@ -404,7 +405,9 @@ final class RecordingRuntime {
                 guard !apiKey.isEmpty else { return }
 
                 self.onLog?("Attempting Deepgram reconnect (\(attempt)/\(self.maxReconnectAttempts)).", .warning)
-                self.deepgram.connect(apiKey: apiKey, format: format, language: self.languageProvider())
+                let language = self.pendingTranscriptionLanguage
+                    ?? self.resolvedTranscriptionLanguageProvider(self.currentActiveApplication?.bundleIdentifier)
+                self.deepgram.connect(apiKey: apiKey, format: format, language: language)
             }
         }
     }
