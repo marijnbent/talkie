@@ -19,6 +19,7 @@ final class OverlayWindowController {
             panel = makePanel()
         }
         guard let panel else { return }
+        ensureOverlayContent(on: panel)
         guard let screen = NSScreen.main else {
             sessionState.overlayPulseID = UUID()
             isShowing = true
@@ -65,8 +66,7 @@ final class OverlayWindowController {
         let hideID = animationID
 
         guard let screen = NSScreen.main else {
-            panel.orderOut(nil)
-            self.panel = nil
+            releasePanelIfHidden(for: hideID)
             return
         }
 
@@ -81,30 +81,26 @@ final class OverlayWindowController {
         } completionHandler: {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard self.animationID == hideID, !self.isShowing else { return }
-                self.panel?.orderOut(nil)
-                // Release the hidden panel so its SwiftUI repeatForever animations
-                // do not keep ticking while Talkie is idle.
-                self.panel = nil
+                self.releasePanelIfHidden(for: hideID)
+            }
+        }
+
+        // AppKit's animation completion callback is not always reliable for
+        // non-activating panels, so also schedule a fallback cleanup.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            Task { @MainActor in
+                self?.releasePanelIfHidden(for: hideID)
             }
         }
     }
 
     private func makePanel() -> NSPanel {
-        let overlayView = OverlayView(sessionState: sessionState)
-        let hosting = NSHostingController(rootView: overlayView)
-
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 90, height: 32),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.contentViewController = hosting
-        if let contentView = panel.contentView {
-            hosting.view.frame = contentView.bounds
-            hosting.view.autoresizingMask = [.width, .height]
-        }
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -118,6 +114,30 @@ final class OverlayWindowController {
         }
 
         return panel
+    }
+
+    private func ensureOverlayContent(on panel: NSPanel) {
+        guard panel.contentViewController == nil else { return }
+
+        let overlayView = OverlayView(sessionState: sessionState)
+        let hosting = NSHostingController(rootView: overlayView)
+        panel.contentViewController = hosting
+
+        if let contentView = panel.contentView {
+            hosting.view.frame = contentView.bounds
+            hosting.view.autoresizingMask = [.width, .height]
+        }
+    }
+
+    private func releasePanelIfHidden(for hideID: UUID) {
+        guard animationID == hideID, !isShowing else { return }
+        guard let panel else { return }
+
+        panel.orderOut(nil)
+        // Release the hosted SwiftUI tree so repeatForever animations cannot
+        // keep driving layout after the overlay is hidden.
+        panel.contentViewController = nil
+        self.panel = nil
     }
 
     private func targetFrame(screen: NSScreen) -> CGRect {

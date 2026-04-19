@@ -25,7 +25,7 @@ final class FinalizeWatchdogTests: XCTestCase {
                     systemDefaultDevice: nil
                 )
             },
-            languageProvider: { .automatic },
+            resolvedTranscriptionLanguageProvider: { _ in .automatic },
             apiKeyProvider: { "dg_key" },
             resolvedEnhancementPromptProvider: { _, _ in
                 EnhancementPromptContext(

@@ -207,7 +207,7 @@ final class RecordingRuntimeTests: XCTestCase {
                     systemDefaultDevice: nil
                 )
             },
-            languageProvider: { .automatic },
+            resolvedTranscriptionLanguageProvider: { _ in .automatic },
             apiKeyProvider: { "dg_key" },
             resolvedEnhancementPromptProvider: resolvedEnhancementPromptProvider,
             playSoundEffectsEnabledProvider: { false },
