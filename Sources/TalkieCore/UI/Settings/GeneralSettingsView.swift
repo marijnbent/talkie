@@ -82,6 +82,7 @@ struct GeneralSettingsView: View {
 
             Section {
                 Toggle("Show selected language in menu bar", isOn: viewModel.binding(for: \.showSelectedLanguageInMenuBar))
+                Toggle("Show language button in recorder widget", isOn: viewModel.binding(for: \.showLanguageInRecorderWidget))
 
                 TextField("Search languages", text: $languageSearchText)
                     .textFieldStyle(.roundedBorder)

@@ -11,6 +11,7 @@ final class AppStateTests: XCTestCase {
     private let playSoundEffectsDefaultsKey = "Talkie.PlaySoundEffects"
     private let restoreClipboardAfterPasteDefaultsKey = "Talkie.RestoreClipboardAfterPaste"
     private let showSelectedLanguageInMenuBarDefaultsKey = "Talkie.ShowSelectedLanguageInMenuBar"
+    private let showLanguageInRecorderWidgetDefaultsKey = "Talkie.ShowLanguageInRecorderWidget"
     private let audioInputSelectionDefaultsKey = "Talkie.AudioInputSelection"
 
     override func setUp() {
@@ -23,6 +24,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: playSoundEffectsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
     }
 
@@ -35,6 +37,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: playSoundEffectsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
         super.tearDown()
     }
@@ -237,6 +240,19 @@ final class AppStateTests: XCTestCase {
 
         let restored = AppState()
         XCTAssertTrue(restored.showSelectedLanguageInMenuBar)
+    }
+
+    func testShowLanguageInRecorderWidgetDefaultsToTrue() {
+        let state = AppState()
+        XCTAssertTrue(state.showLanguageInRecorderWidget)
+    }
+
+    func testShowLanguageInRecorderWidgetPersists() {
+        let state = AppState()
+        state.showLanguageInRecorderWidget = false
+
+        let restored = AppState()
+        XCTAssertFalse(restored.showLanguageInRecorderWidget)
     }
 
     // MARK: - Clipboard Restore

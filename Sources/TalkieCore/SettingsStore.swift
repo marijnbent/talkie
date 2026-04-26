@@ -16,6 +16,7 @@ final class SettingsStore: ObservableObject {
     static let muteMediaDuringRecordingKey = "Talkie.MuteMediaDuringRecording"
     static let restoreClipboardAfterPasteKey = "Talkie.RestoreClipboardAfterPaste"
     static let showSelectedLanguageInMenuBarKey = "Talkie.ShowSelectedLanguageInMenuBar"
+    static let showLanguageInRecorderWidgetKey = "Talkie.ShowLanguageInRecorderWidget"
     static let overlayPositionKey = "Talkie.OverlayPosition"
     static let audioInputSelectionKey = "Talkie.AudioInputSelection"
     static let appTranscriptionLanguageOverridesKey = "Talkie.AppTranscriptionLanguageOverrides"
@@ -86,6 +87,12 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var showLanguageInRecorderWidget: Bool {
+        didSet {
+            defaults.set(showLanguageInRecorderWidget, forKey: Self.showLanguageInRecorderWidgetKey)
+        }
+    }
+
     @Published var overlayPosition: OverlayPosition {
         didSet {
             defaults.set(overlayPosition.rawValue, forKey: Self.overlayPositionKey)
@@ -147,6 +154,7 @@ final class SettingsStore: ObservableObject {
         muteMediaDuringRecording = (defaults.object(forKey: Self.muteMediaDuringRecordingKey) as? Bool) ?? false
         restoreClipboardAfterPaste = (defaults.object(forKey: Self.restoreClipboardAfterPasteKey) as? Bool) ?? false
         showSelectedLanguageInMenuBar = (defaults.object(forKey: Self.showSelectedLanguageInMenuBarKey) as? Bool) ?? false
+        showLanguageInRecorderWidget = (defaults.object(forKey: Self.showLanguageInRecorderWidgetKey) as? Bool) ?? true
 
         let savedPosition = defaults.string(forKey: Self.overlayPositionKey)
         overlayPosition = savedPosition.flatMap(OverlayPosition.init(rawValue:)) ?? .top

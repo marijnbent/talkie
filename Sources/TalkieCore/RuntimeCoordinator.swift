@@ -160,6 +160,9 @@ final class RuntimeCoordinator {
         shortcutRuntime.onActions = { [weak self] actions in
             self?.handleShortcutActions(actions)
         }
+        windowCoordinator.onCycleLanguage = { [weak self] in
+            self?.cycleLanguage()
+        }
 
         recordingRuntime.onWillStartRecording = { [weak self] in
             self?.sessionState.resetTranscript()
@@ -237,6 +240,21 @@ final class RuntimeCoordinator {
             }
 
             recordingRuntime.handle(action: action)
+        }
+    }
+
+    private func cycleLanguage() {
+        let currentLanguage = settingsStore.deepgramLanguage
+        let language = DeepgramLanguage.nextStarredLanguage(
+            after: currentLanguage,
+            starredLanguages: settingsStore.starredDeepgramLanguages
+        )
+        guard language != currentLanguage else { return }
+
+        settingsStore.deepgramLanguage = language
+        recordingRuntime.changeTranscriptionLanguage(to: language)
+        if recordingRuntime.phase != .recording {
+            sessionState.addLog("Language changed to \(language.displayName).", level: .info)
         }
     }
 

@@ -6,6 +6,11 @@ final class WindowCoordinator {
     private let mainViewModel: MainViewModel
     private let mainWindowController: MainWindowController
     private let overlayWindowController: OverlayWindowController
+    var onCycleLanguage: (() -> Void)? {
+        didSet {
+            overlayWindowController.onCycleLanguage = onCycleLanguage
+        }
+    }
 
     init(
         settingsStore: SettingsStore,

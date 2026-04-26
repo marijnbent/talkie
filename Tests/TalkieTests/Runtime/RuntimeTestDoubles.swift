@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import ApplicationServices
 import Foundation
 @testable import TalkieCore
@@ -227,6 +228,40 @@ final class FakePasteVerificationPort: PasteVerificationPort {
             return checkResults.removeFirst()
         }
         return .pending
+    }
+}
+
+final class FakeEventMonitorPort: EventMonitorPort {
+    var keyDownInterceptor: ((CGKeyCode) -> Bool)?
+    var removedMonitorCount = 0
+
+    func addGlobalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> Void
+    ) -> Any? {
+        nil
+    }
+
+    func addLocalMonitor(
+        matching mask: NSEvent.EventTypeMask,
+        handler: @escaping (NSEvent) -> NSEvent?
+    ) -> Any? {
+        nil
+    }
+
+    func addKeyDownInterceptor(handler: @escaping (CGKeyCode) -> Bool) -> Any? {
+        keyDownInterceptor = handler
+        return "keyDownInterceptor"
+    }
+
+    func removeMonitor(_ monitor: Any) {
+        removedMonitorCount += 1
+        keyDownInterceptor = nil
+    }
+
+    @discardableResult
+    func sendKeyDown(_ keyCode: CGKeyCode) -> Bool {
+        keyDownInterceptor?(keyCode) ?? false
     }
 }
 

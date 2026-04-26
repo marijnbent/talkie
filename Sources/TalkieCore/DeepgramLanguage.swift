@@ -295,6 +295,18 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
         languages.sorted { compareForDisplay($0, $1) == .orderedAscending }
     }
 
+    static func nextStarredLanguage(
+        after currentLanguage: DeepgramLanguage,
+        starredLanguages: [DeepgramLanguage]
+    ) -> DeepgramLanguage {
+        let languages = sortedForMenuBar(normalizedStarredLanguages(starredLanguages))
+        guard let currentIndex = languages.firstIndex(of: currentLanguage) else {
+            return languages[0]
+        }
+
+        return languages[(currentIndex + 1) % languages.count]
+    }
+
     static func sortedForSettings(
         _ languages: [DeepgramLanguage],
         starred: Set<DeepgramLanguage>

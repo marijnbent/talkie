@@ -91,5 +91,9 @@ protocol EventMonitorPort {
         handler: @escaping (NSEvent) -> NSEvent?
     ) -> Any?
 
+    func addKeyDownInterceptor(
+        handler: @escaping (CGKeyCode) -> Bool
+    ) -> Any?
+
     func removeMonitor(_ monitor: Any)
 }

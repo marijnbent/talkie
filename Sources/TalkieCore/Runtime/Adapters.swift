@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Carbon
 import Foundation
@@ -158,6 +159,18 @@ final class NSPasteboardAdapter: PasteboardPort {
 }
 
 struct NSEventMonitorAdapter: EventMonitorPort {
+    private final class KeyDownInterceptorToken {
+        let eventTap: CFMachPort
+        let runLoopSource: CFRunLoopSource
+        let userInfo: UnsafeMutableRawPointer
+
+        init(eventTap: CFMachPort, runLoopSource: CFRunLoopSource, userInfo: UnsafeMutableRawPointer) {
+            self.eventTap = eventTap
+            self.runLoopSource = runLoopSource
+            self.userInfo = userInfo
+        }
+    }
+
     func addGlobalMonitor(
         matching mask: NSEvent.EventTypeMask,
         handler: @escaping (NSEvent) -> Void
@@ -172,7 +185,67 @@ struct NSEventMonitorAdapter: EventMonitorPort {
         NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
     }
 
+    func addKeyDownInterceptor(
+        handler: @escaping (CGKeyCode) -> Bool
+    ) -> Any? {
+        let callback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard type == .keyDown else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            guard let userInfo else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            let interceptor = Unmanaged<KeyDownInterceptorBox>
+                .fromOpaque(userInfo)
+                .takeUnretainedValue()
+            let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+            return interceptor.handler(keyCode) ? nil : Unmanaged.passUnretained(event)
+        }
+
+        let interceptor = KeyDownInterceptorBox(handler: handler)
+        let userInfo = Unmanaged.passRetained(interceptor).toOpaque()
+        let mask = (1 << CGEventType.keyDown.rawValue)
+
+        guard let eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: callback,
+            userInfo: userInfo
+        ) else {
+            Unmanaged<KeyDownInterceptorBox>.fromOpaque(userInfo).release()
+            return nil
+        }
+
+        guard let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0) else {
+            Unmanaged<KeyDownInterceptorBox>.fromOpaque(userInfo).release()
+            CFMachPortInvalidate(eventTap)
+            return nil
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        return KeyDownInterceptorToken(eventTap: eventTap, runLoopSource: runLoopSource, userInfo: userInfo)
+    }
+
     func removeMonitor(_ monitor: Any) {
+        if let token = monitor as? KeyDownInterceptorToken {
+            Unmanaged<KeyDownInterceptorBox>.fromOpaque(token.userInfo).release()
+            CFMachPortInvalidate(token.eventTap)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), token.runLoopSource, .commonModes)
+            return
+        }
+
         NSEvent.removeMonitor(monitor)
+    }
+}
+
+private final class KeyDownInterceptorBox {
+    let handler: (CGKeyCode) -> Bool
+
+    init(handler: @escaping (CGKeyCode) -> Bool) {
+        self.handler = handler
     }
 }

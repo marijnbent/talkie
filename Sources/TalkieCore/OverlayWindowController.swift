@@ -8,6 +8,7 @@ final class OverlayWindowController {
     private var panel: NSPanel?
     private var isShowing = false
     private var animationID = UUID()
+    var onCycleLanguage: (() -> Void)?
 
     init(sessionState: SessionState, settingsStore: SettingsStore) {
         self.sessionState = sessionState
@@ -105,7 +106,7 @@ final class OverlayWindowController {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .statusBar
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
         if let screen = NSScreen.main {
@@ -119,7 +120,13 @@ final class OverlayWindowController {
     private func ensureOverlayContent(on panel: NSPanel) {
         guard panel.contentViewController == nil else { return }
 
-        let overlayView = OverlayView(sessionState: sessionState)
+        let overlayView = OverlayView(
+            sessionState: sessionState,
+            settingsStore: settingsStore,
+            onCycleLanguage: { [weak self] in
+                self?.onCycleLanguage?()
+            }
+        )
         let hosting = NSHostingController(rootView: overlayView)
         panel.contentViewController = hosting
 
@@ -157,7 +164,8 @@ final class OverlayWindowController {
     }
 
     private var overlayWidth: CGFloat {
-        sessionState.overlayAppIcon == nil ? 90 : 116
+        let baseWidth: CGFloat = sessionState.overlayAppIcon == nil ? 90 : 116
+        return settingsStore.showLanguageInRecorderWidget ? baseWidth + 56 : baseWidth
     }
 
     private func offscreenFrame(screen: NSScreen, width: CGFloat, height: CGFloat) -> CGRect {

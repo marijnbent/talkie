@@ -8,8 +8,7 @@ final class EscCancelMonitor {
     private let shouldCancel: () -> Bool
     private let cancelRecording: () -> Void
 
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var keyDownInterceptor: Any?
 
     init(
         eventMonitor: EventMonitorPort,
@@ -26,38 +25,24 @@ final class EscCancelMonitor {
     func start() {
         stop()
 
-        let escKeyCode = UInt16(kVK_Escape)
-        globalMonitor = eventMonitor.addGlobalMonitor(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == escKeyCode else { return }
-            Task { @MainActor in
-                guard let self else { return }
-                self.handleEsc()
-            }
-        }
-
-        localMonitor = eventMonitor.addLocalMonitor(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == escKeyCode else { return event }
-            Task { @MainActor in
-                guard let self else { return }
-                self.handleEsc()
-            }
-            return event
+        let escKeyCode = CGKeyCode(kVK_Escape)
+        keyDownInterceptor = eventMonitor.addKeyDownInterceptor { [weak self] keyCode in
+            guard keyCode == escKeyCode else { return false }
+            guard let self else { return false }
+            return self.handleEsc()
         }
     }
 
     func stop() {
-        if let globalMonitor {
-            eventMonitor.removeMonitor(globalMonitor)
-            self.globalMonitor = nil
-        }
-        if let localMonitor {
-            eventMonitor.removeMonitor(localMonitor)
-            self.localMonitor = nil
+        if let keyDownInterceptor {
+            eventMonitor.removeMonitor(keyDownInterceptor)
+            self.keyDownInterceptor = nil
         }
     }
 
-    private func handleEsc() {
-        guard isEnabled(), shouldCancel() else { return }
+    private func handleEsc() -> Bool {
+        guard isEnabled(), shouldCancel() else { return false }
         cancelRecording()
+        return true
     }
 }

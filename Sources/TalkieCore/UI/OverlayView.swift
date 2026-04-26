@@ -3,6 +3,8 @@ import SwiftUI
 
 struct OverlayView: View {
     @ObservedObject var sessionState: SessionState
+    @ObservedObject var settingsStore: SettingsStore
+    let onCycleLanguage: () -> Void
     @State private var pulse = false
     @State private var appear = false
 
@@ -11,6 +13,13 @@ struct OverlayView: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if settingsStore.showLanguageInRecorderWidget {
+                LanguageCycleButton(
+                    language: settingsStore.deepgramLanguage,
+                    action: onCycleLanguage
+                )
+            }
+
             PulseOrb(pulse: pulse, enhancing: isEnhancing)
 
             if let appIcon = sessionState.overlayAppIcon {
@@ -71,6 +80,35 @@ struct OverlayView: View {
                 ),
                 lineWidth: 1
             )
+    }
+}
+
+private struct LanguageCycleButton: View {
+    let language: DeepgramLanguage
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(language.menuBarAbbreviation)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 38, height: 20)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+        .help("Change language")
+        .accessibilityLabel("Change language")
     }
 }
 

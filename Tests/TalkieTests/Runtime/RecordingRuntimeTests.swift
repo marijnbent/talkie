@@ -180,8 +180,36 @@ final class RecordingRuntimeTests: XCTestCase {
         XCTAssertEqual(overlayUpdates[1].1, "Listening")
     }
 
+    func testChangingLanguageWhileRecordingReconnectsAndFinalizesWithNewLanguage() async {
+        var resolvedLanguage = DeepgramLanguage.english
+        let harness = makeHarness(
+            resolvedTranscriptionLanguageProvider: { _ in resolvedLanguage }
+        )
+        var finalizedInterimCount = 0
+        harness.runtime.onFinalizeLatestInterim = {
+            finalizedInterimCount += 1
+        }
+
+        let ownerID = UUID()
+        harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        XCTAssertEqual(harness.deepgram.connectCalls.map(\.language), [.english])
+
+        resolvedLanguage = .french
+        harness.runtime.changeTranscriptionLanguage(to: .french)
+
+        XCTAssertEqual(harness.deepgram.connectCalls.map(\.language), [.english, .french])
+        XCTAssertEqual(finalizedInterimCount, 1)
+
+        harness.runtime.handle(action: .stop)
+        harness.deepgram.completeClose()
+        await Task.yield()
+
+        XCTAssertEqual(harness.finalizations.value.first?.transcriptionLanguage, .french)
+    }
+
     private func makeHarness(
         activeApplicationProvider: @escaping () -> ActiveApplicationContext? = { nil },
+        resolvedTranscriptionLanguageProvider: @escaping (String?) -> DeepgramLanguage = { _ in .automatic },
         resolvedEnhancementPromptProvider: @escaping (UUID?, String?) -> EnhancementPromptContext? = { _, _ in nil }
     ) -> RuntimeHarness {
         let clock = ManualClock()
@@ -207,7 +235,7 @@ final class RecordingRuntimeTests: XCTestCase {
                     systemDefaultDevice: nil
                 )
             },
-            resolvedTranscriptionLanguageProvider: { _ in .automatic },
+            resolvedTranscriptionLanguageProvider: resolvedTranscriptionLanguageProvider,
             apiKeyProvider: { "dg_key" },
             resolvedEnhancementPromptProvider: resolvedEnhancementPromptProvider,
             playSoundEffectsEnabledProvider: { false },

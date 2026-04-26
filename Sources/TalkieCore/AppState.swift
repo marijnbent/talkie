@@ -197,6 +197,11 @@ final class AppState: ObservableObject {
         set { settingsStore.showSelectedLanguageInMenuBar = newValue }
     }
 
+    var showLanguageInRecorderWidget: Bool {
+        get { settingsStore.showLanguageInRecorderWidget }
+        set { settingsStore.showLanguageInRecorderWidget = newValue }
+    }
+
     var overlayPosition: OverlayPosition {
         get { settingsStore.overlayPosition }
         set { settingsStore.overlayPosition = newValue }

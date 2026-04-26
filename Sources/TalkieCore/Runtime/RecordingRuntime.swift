@@ -173,6 +173,24 @@ final class RecordingRuntime {
         cancelRecording()
     }
 
+    func changeTranscriptionLanguage(to language: DeepgramLanguage) {
+        guard phase == .recording else { return }
+        guard pendingTranscriptionLanguage != language else { return }
+        guard let format = currentRecordingFormat else { return }
+
+        let apiKey = apiKeyProvider().trimmed
+        guard !apiKey.isEmpty else { return }
+
+        cancelReconnect()
+        onFinalizeLatestInterim?()
+        pendingTranscriptionLanguage = language
+        pendingTranscriptionError = nil
+        deepgramReconnectAttempt = 0
+        onStatus?(.listening)
+        deepgram.connect(apiKey: apiKey, format: format, language: language)
+        onLog?("Language changed to \(language.displayName) (\(language.deepgramCode)).", .info)
+    }
+
     private func startRecording(ownerShortcutID: UUID, ownerMode: ShortcutMode, isLatched: Bool) {
         guard phase == .idle else { return }
 
