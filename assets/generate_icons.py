@@ -8,7 +8,7 @@ Produces:
 """
 
 import math
-from PIL import Image, ImageDraw, ImageFilter, ImageChops
+from PIL import Image, ImageDraw, ImageFilter
 import os
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,14 +17,6 @@ OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ─────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────
-
-def make_rounded_rect_mask(size, radius):
-    """Return an L-channel image usable as a mask for rounded corners."""
-    mask = Image.new("L", size, 0)
-    d = ImageDraw.Draw(mask)
-    d.rounded_rectangle([0, 0, size[0] - 1, size[1] - 1], radius=radius, fill=255)
-    return mask
-
 
 def lerp_color(c1, c2, t):
     """Linearly interpolate between two RGB tuples."""
@@ -114,9 +106,6 @@ def build_app_icon():
     bg = gradient_diagonal((SIZE, SIZE), gradient_stops)
     bg = bg.convert("RGBA")
 
-    # Apply macOS rounded-square mask (radius ~230/1024)
-    rr_mask = make_rounded_rect_mask((SIZE, SIZE), radius=230)
-    bg.putalpha(rr_mask)
     img = Image.alpha_composite(img, bg)
 
     # ── 2. Subtle vignette/depth layer ────────────────────
@@ -250,13 +239,6 @@ def build_app_icon():
                 v = rng.randint(200, 255)
                 noise_pixels[x, y] = (v, v, v, rng.randint(3, 9))
     img = Image.alpha_composite(img, noise_layer)
-
-    # ── 8. Final rounded-square crop ─────────────────────
-    final_mask = make_rounded_rect_mask((SIZE, SIZE), radius=230)
-    r, g, b, a = img.split()
-    # AND the alpha with the rounded mask
-    new_alpha = ImageChops.multiply(a, final_mask)
-    img = Image.merge("RGBA", (r, g, b, new_alpha))
 
     return img
 
