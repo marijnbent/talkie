@@ -45,11 +45,13 @@ final class FinalizeWatchdogTests: XCTestCase {
 
         let ownerID = UUID()
         runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .click, latched: true))
+        await waitUntil { deepgram.connectCalls.count == 1 }
         runtime.handle(action: .stop)
         XCTAssertEqual(runtime.phase, .finalizing)
+        await waitUntil { deepgram.closeStreamCallCount == 1 }
 
         scheduler.advance(by: 1.2)
-        await Task.yield()
+        await waitUntil { finalizationCount == 1 }
 
         XCTAssertEqual(finalizationCount, 1)
         XCTAssertEqual(runtime.phase, .idle)
@@ -58,5 +60,13 @@ final class FinalizeWatchdogTests: XCTestCase {
         await Task.yield()
 
         XCTAssertEqual(finalizationCount, 1, "Late close callback must not double-finalize")
+    }
+
+    private func waitUntil(condition: () -> Bool) async {
+        for _ in 0..<200 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for asynchronous runtime work.")
     }
 }

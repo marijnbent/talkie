@@ -7,8 +7,10 @@ final class SettingsStore: ObservableObject {
     static let starredDeepgramLanguagesKey = "Talkie.StarredDeepgramLanguages"
     static let historyLimitKey = "Talkie.HistoryLimit"
     static let shortcutsKey = "Talkie.Shortcuts"
+    static let enhancementProviderKey = "Talkie.EnhancementProvider"
     static let openRouterApiKeyKey = "Talkie.OpenRouterApiKey"
     static let openRouterModelKey = "Talkie.OpenRouterModel"
+    static let celerisApiKeyKey = "Talkie.CelerisApiKey"
     static let promptsKey = "Talkie.Prompts"
     static let legacyEnhancementPromptsKey = "Talkie.EnhancementPrompts"
     static let escToCancelRecordingKey = "Talkie.EscToCancelRecording"
@@ -37,6 +39,12 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var enhancementProvider: EnhancementProvider {
+        didSet {
+            defaults.set(enhancementProvider.rawValue, forKey: Self.enhancementProviderKey)
+        }
+    }
+
     @Published var openRouterApiKey: String {
         didSet {
             defaults.set(openRouterApiKey, forKey: Self.openRouterApiKeyKey)
@@ -46,6 +54,12 @@ final class SettingsStore: ObservableObject {
     @Published var openRouterModel: String {
         didSet {
             defaults.set(openRouterModel, forKey: Self.openRouterModelKey)
+        }
+    }
+
+    @Published var celerisApiKey: String {
+        didSet {
+            defaults.set(celerisApiKey, forKey: Self.celerisApiKeyKey)
         }
     }
 
@@ -141,8 +155,25 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    var hasOpenRouterCredentials: Bool {
-        !openRouterApiKey.trimmed.isEmpty && !openRouterModel.trimmed.isEmpty
+    var enhancementProviderSettings: EnhancementProviderSettings {
+        switch enhancementProvider {
+        case .openRouter:
+            EnhancementProviderSettings(
+                provider: .openRouter,
+                apiKey: openRouterApiKey.trimmed,
+                model: openRouterModel.trimmed
+            )
+        case .celeris:
+            EnhancementProviderSettings(
+                provider: .celeris,
+                apiKey: celerisApiKey.trimmed,
+                model: CelerisClient.model
+            )
+        }
+    }
+
+    var hasEnhancementCredentials: Bool {
+        enhancementProviderSettings.missingCredential == nil
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -169,8 +200,8 @@ final class SettingsStore: ObservableObject {
             from: defaults.stringArray(forKey: Self.starredDeepgramLanguagesKey)
         )
 
-        let savedLimit = defaults.integer(forKey: Self.historyLimitKey)
-        historyLimit = HistoryLimit(rawValue: savedLimit) ?? .ten
+        let savedLimit = defaults.object(forKey: Self.historyLimitKey) as? Int
+        historyLimit = savedLimit.flatMap(HistoryLimit.init(rawValue:)) ?? .ten
 
         if let data = defaults.data(forKey: Self.appTranscriptionLanguageOverridesKey),
            let decoded = try? JSONDecoder().decode([AppTranscriptionLanguageOverride].self, from: data) {
@@ -187,8 +218,11 @@ final class SettingsStore: ObservableObject {
             shortcuts = [ShortcutConfig.makeDefault()]
         }
 
+        enhancementProvider = defaults.string(forKey: Self.enhancementProviderKey)
+            .flatMap(EnhancementProvider.init(rawValue:)) ?? .openRouter
         openRouterApiKey = defaults.string(forKey: Self.openRouterApiKeyKey) ?? ""
         openRouterModel = defaults.string(forKey: Self.openRouterModelKey) ?? ""
+        celerisApiKey = defaults.string(forKey: Self.celerisApiKeyKey) ?? ""
 
         if let data = defaults.data(forKey: Self.promptsKey),
            let decoded = try? JSONDecoder().decode([PromptConfig].self, from: data) {

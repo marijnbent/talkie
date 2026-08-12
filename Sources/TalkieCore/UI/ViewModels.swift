@@ -235,6 +235,7 @@ final class EnhancementsSettingsViewModel: ObservableObject {
 
     var prompts: [PromptConfig] { settingsStore.prompts }
     var shortcuts: [ShortcutConfig] { settingsStore.shortcuts }
+    var enhancementProvider: EnhancementProvider { settingsStore.enhancementProvider }
 
     func binding<Value>(for keyPath: ReferenceWritableKeyPath<SettingsStore, Value>) -> Binding<Value> {
         Binding(
@@ -319,7 +320,11 @@ final class EnhancementsSettingsViewModel: ObservableObject {
 
 @MainActor
 final class HistoryViewModel: ObservableObject {
-    typealias Enhancer = @Sendable (_ transcript: String, _ prompt: String, _ apiKey: String, _ model: String) async throws -> String
+    typealias Enhancer = @Sendable (
+        _ transcript: String,
+        _ prompt: String,
+        _ settings: EnhancementProviderSettings
+    ) async throws -> String
     typealias Transcriber = @Sendable (_ fileURL: URL, _ apiKey: String, _ language: DeepgramLanguage) async throws -> String
 
     private let settingsStore: SettingsStore
@@ -330,23 +335,29 @@ final class HistoryViewModel: ObservableObject {
 
     @Published private(set) var expandedHistoryEntries: Set<UUID> = []
     @Published private(set) var retryingEntryIDs: Set<UUID> = []
+    @Published private(set) var retryErrors: [UUID: String] = [:]
 
     init(
         settingsStore: SettingsStore,
         sessionState: SessionState,
-        enhancer: @escaping Enhancer = OpenRouterClient.enhance,
+        enhancer: @escaping Enhancer = EnhancementClient.enhance,
         transcriber: @escaping Transcriber = DeepgramPrerecordedClient.transcribe
     ) {
         self.settingsStore = settingsStore
         self.sessionState = sessionState
         self.enhancer = enhancer
         self.transcriber = transcriber
-        settingsStore.objectWillChange
+        settingsStore.$historyLimit
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
-        sessionState.objectWillChange
+        settingsStore.$starredDeepgramLanguages
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        sessionState.$transcriptHistory
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -359,6 +370,14 @@ final class HistoryViewModel: ObservableObject {
 
     var historyLimit: HistoryLimit {
         settingsStore.historyLimit
+    }
+
+    var retryTranscriptionLanguages: [DeepgramLanguage] {
+        DeepgramLanguage.sortedForMenuBar(
+            DeepgramLanguage.normalizedStarredLanguages(
+                [.automatic] + settingsStore.starredDeepgramLanguages
+            )
+        )
     }
 
     func binding<Value>(for keyPath: ReferenceWritableKeyPath<SettingsStore, Value>) -> Binding<Value> {
@@ -390,12 +409,16 @@ final class HistoryViewModel: ObservableObject {
         retryingEntryIDs.contains(entryID)
     }
 
+    func retryError(for entryID: UUID) -> String? {
+        retryErrors[entryID]
+    }
+
     func retryEnhancement(for entry: TranscriptHistoryEntry) {
         guard entry.canRetryEnhancement else { return }
         guard beginRetry(for: entry.id, status: .enhancing) else { return }
         retryingEntryIDs.insert(entry.id)
         sessionState.addLog(
-            "Retrying enhancement from history (model: \(settingsStore.openRouterModel.trimmed)).",
+            "Retrying enhancement from history (model: \(settingsStore.enhancementProviderSettings.model)).",
             level: .info
         )
 
@@ -418,10 +441,9 @@ final class HistoryViewModel: ObservableObject {
         }
     }
 
-    func retryTranscription(for entry: TranscriptHistoryEntry) {
+    func retryTranscription(for entry: TranscriptHistoryEntry, language: DeepgramLanguage) {
         guard entry.canRetryTranscription,
-              let fileURL = entry.rawRecordingFileURL,
-              let language = entry.transcriptionLanguage else { return }
+              let fileURL = entry.rawRecordingFileURL else { return }
         guard beginRetry(for: entry.id, status: .finalizing) else { return }
 
         retryingEntryIDs.insert(entry.id)
@@ -436,36 +458,18 @@ final class HistoryViewModel: ObservableObject {
             let deepgramAPIKey = self.settingsStore.apiKey.trimmed
             guard !deepgramAPIKey.isEmpty else {
                 await MainActor.run {
-                    self.applyRetryResult(
-                        for: entry,
-                        transcriptText: entry.text,
-                        transcriptionError: "Deepgram API key is not set.",
-                        enhancedText: nil,
-                        enhancementError: nil
+                    self.finishRetry(
+                        for: entry.id,
+                        error: "Deepgram API key is not set.",
+                        logLevel: .warning
                     )
-                    self.sessionState.addLog(
-                        "History transcription retry skipped: Deepgram API key is not set.",
-                        level: .warning
-                    )
-                    self.finishRetry(for: entry.id)
                 }
                 return
             }
 
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 await MainActor.run {
-                    self.applyRetryResult(
-                        for: entry,
-                        transcriptText: entry.text,
-                        transcriptionError: "Saved recording could not be found.",
-                        enhancedText: nil,
-                        enhancementError: nil
-                    )
-                    self.sessionState.addLog(
-                        "History transcription retry failed: saved recording could not be found.",
-                        level: .error
-                    )
-                    self.finishRetry(for: entry.id)
+                    self.finishRetry(for: entry.id, error: "Saved recording could not be found.")
                 }
                 return
             }
@@ -474,18 +478,7 @@ final class HistoryViewModel: ObservableObject {
                 let transcript = try await self.transcriber(fileURL, deepgramAPIKey, language).trimmed
                 if transcript.isEmpty {
                     await MainActor.run {
-                        self.applyRetryResult(
-                            for: entry,
-                            transcriptText: entry.text,
-                            transcriptionError: TranscriptHistoryEntry.emptyTranscriptionMessage,
-                            enhancedText: nil,
-                            enhancementError: nil
-                        )
-                        self.sessionState.addLog(
-                            "History transcription retry failed: Deepgram returned no transcript.",
-                            level: .error
-                        )
-                        self.finishRetry(for: entry.id)
+                        self.finishRetry(for: entry.id, error: "Deepgram returned no transcript.")
                     }
                     return
                 }
@@ -501,7 +494,8 @@ final class HistoryViewModel: ObservableObject {
                         transcriptText: transcript,
                         transcriptionError: nil,
                         enhancedText: enhancementResult.enhancedText,
-                        enhancementError: enhancementResult.enhancementError
+                        enhancementError: enhancementResult.enhancementError,
+                        transcriptionLanguage: language
                     )
                     self.sessionState.addLog("History transcription retry succeeded.", level: .info)
                     self.finishRetry(for: entry.id)
@@ -511,18 +505,7 @@ final class HistoryViewModel: ObservableObject {
                     let reason = error.localizedDescription.trimmed.isEmpty
                         ? String(describing: error)
                         : error.localizedDescription
-                    self.applyRetryResult(
-                        for: entry,
-                        transcriptText: entry.text,
-                        transcriptionError: reason,
-                        enhancedText: nil,
-                        enhancementError: nil
-                    )
-                    self.sessionState.addLog(
-                        "History transcription retry failed: \(reason)",
-                        level: .error
-                    )
-                    self.finishRetry(for: entry.id)
+                    self.finishRetry(for: entry.id, error: reason)
                 }
             }
         }
@@ -533,7 +516,8 @@ final class HistoryViewModel: ObservableObject {
         transcriptText: String,
         transcriptionError: String?,
         enhancedText: String?,
-        enhancementError: String?
+        enhancementError: String?,
+        transcriptionLanguage: DeepgramLanguage? = nil
     ) {
         sessionState.updateTranscriptHistoryEntry(id: entry.id) { current in
             TranscriptHistoryEntry(
@@ -546,7 +530,7 @@ final class HistoryViewModel: ObservableObject {
                 promptName: current.promptName,
                 enhancementPromptText: current.enhancementPromptText,
                 rawRecordingFileURL: current.rawRecordingFileURL,
-                transcriptionLanguage: current.transcriptionLanguage,
+                transcriptionLanguage: transcriptionLanguage ?? current.transcriptionLanguage,
                 usedActiveAppPrompt: current.usedActiveAppPrompt
             )
         }
@@ -554,11 +538,20 @@ final class HistoryViewModel: ObservableObject {
 
     private func beginRetry(for entryID: UUID, status: AppStatus) -> Bool {
         guard !retryingEntryIDs.contains(entryID) else { return false }
+        retryErrors[entryID] = nil
         sessionState.appStatus = status
         return true
     }
 
-    private func finishRetry(for entryID: UUID) {
+    private func finishRetry(
+        for entryID: UUID,
+        error: String? = nil,
+        logLevel: LogLevel = .error
+    ) {
+        if let error {
+            retryErrors[entryID] = error
+            sessionState.addLog("History transcription retry failed: \(error)", level: logLevel)
+        }
         retryingEntryIDs.remove(entryID)
         if retryingEntryIDs.isEmpty {
             sessionState.appStatus = .idle
@@ -573,16 +566,11 @@ final class HistoryViewModel: ObservableObject {
             return (nil, nil)
         }
 
-        let apiKey = settingsStore.openRouterApiKey.trimmed
-        guard !apiKey.isEmpty else {
-            sessionState.addLog("History enhancement retry skipped: OpenRouter API key is not set.", level: .warning)
-            return (nil, "OpenRouter API key is not set.")
-        }
-
-        let model = settingsStore.openRouterModel.trimmed
-        guard !model.isEmpty else {
-            sessionState.addLog("History enhancement retry skipped: OpenRouter model is not set.", level: .warning)
-            return (nil, "OpenRouter model is not set.")
+        let providerSettings = settingsStore.enhancementProviderSettings
+        if let missing = providerSettings.missingCredential {
+            let reason = "\(providerSettings.provider.displayName) \(missing) is not set."
+            sessionState.addLog("History enhancement retry skipped: \(reason)", level: .warning)
+            return (nil, reason)
         }
 
         await MainActor.run {
@@ -590,24 +578,28 @@ final class HistoryViewModel: ObservableObject {
         }
 
         do {
-            let enhanced = try await enhancer(transcript, prompt, apiKey, model)
+            let enhanced = try await enhancer(transcript, prompt, providerSettings)
             let trimmed = enhanced.trimmed
             if trimmed.isEmpty {
                 sessionState.addLog(
-                    "History enhancement retry failed (model: \(model)): OpenRouter returned empty content.",
+                    "History enhancement retry failed (model: \(providerSettings.model)): " +
+                        "\(providerSettings.provider.displayName) returned empty content.",
                     level: .error
                 )
-                return (nil, "OpenRouter returned empty content.")
+                return (nil, "\(providerSettings.provider.displayName) returned empty content.")
             }
 
-            sessionState.addLog("History enhancement retry succeeded (model: \(model)).", level: .info)
+            sessionState.addLog(
+                "History enhancement retry succeeded (model: \(providerSettings.model)).",
+                level: .info
+            )
             return (trimmed, nil)
         } catch {
             let reason = error.localizedDescription.trimmed.isEmpty
                 ? String(describing: error)
                 : error.localizedDescription
             sessionState.addLog(
-                "History enhancement retry failed (model: \(model)): \(reason)",
+                "History enhancement retry failed (model: \(providerSettings.model)): \(reason)",
                 level: .error
             )
             return (nil, reason)

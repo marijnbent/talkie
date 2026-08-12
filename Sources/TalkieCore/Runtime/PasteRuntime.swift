@@ -27,14 +27,9 @@ struct FinalizedTranscriptSession {
 }
 
 struct PasteRuntimeSettings {
-    let openRouterApiKey: String
-    let openRouterModel: String
+    let enhancement: EnhancementProviderSettings
     let playSoundEffects: Bool
     let restoreClipboardAfterPaste: Bool
-
-    var hasOpenRouterCredentials: Bool {
-        !openRouterApiKey.trimmed.isEmpty && !openRouterModel.trimmed.isEmpty
-    }
 }
 
 enum PasteRuntimeEvent {
@@ -47,7 +42,11 @@ enum PasteRuntimeEvent {
 
 @MainActor
 final class PasteRuntime {
-    typealias Enhancer = @Sendable (_ transcript: String, _ prompt: String, _ apiKey: String, _ model: String) async throws -> String
+    typealias Enhancer = @Sendable (
+        _ transcript: String,
+        _ prompt: String,
+        _ settings: EnhancementProviderSettings
+    ) async throws -> String
 
     private let pasteboard: PasteboardPort
     private let pasteVerification: PasteVerificationPort
@@ -111,24 +110,26 @@ final class PasteRuntime {
             var enhancementError: String?
 
             if let prompt = session.enhancementPrompt {
-                if !settings.hasOpenRouterCredentials {
-                    let missing = settings.openRouterApiKey.trimmed.isEmpty ? "API key" : "model"
-                    let reason = "OpenRouter \(missing) is not set."
+                let enhancementSettings = settings.enhancement
+                if let missing = enhancementSettings.missingCredential {
+                    let reason = "\(enhancementSettings.provider.displayName) \(missing) is not set."
                     emit(.status(.enhancementSkippedMissing(missing)))
                     emit(.log("Enhancement skipped: \(reason)", .warning))
                     enhancementError = reason
                     enhancementFailed = true
                 } else {
-                    let model = settings.openRouterModel.trimmed
                     let requestStart = Date()
                     emit(.status(.enhancing))
-                    emit(.log("Sending transcript to OpenRouter for enhancement (model: \(model)).", .info))
+                    emit(.log(
+                        "Sending transcript to \(enhancementSettings.provider.displayName) for enhancement " +
+                            "(model: \(enhancementSettings.model)).",
+                        .info
+                    ))
                     do {
                         let enhanced = try await enhancer(
                             rawText,
                             prompt.content,
-                            settings.openRouterApiKey.trimmed,
-                            model
+                            enhancementSettings
                         )
                         try Task.checkCancellation()
 
@@ -136,14 +137,19 @@ final class PasteRuntime {
                         let trimmed = enhanced.trimmed
                         if !trimmed.isEmpty {
                             enhancedText = trimmed
-                            emit(.log("Transcript enhanced successfully (model: \(model), \(latencyMs) ms).", .info))
+                            emit(.log(
+                                "Transcript enhanced successfully " +
+                                    "(model: \(enhancementSettings.model), \(latencyMs) ms).",
+                                .info
+                            ))
                         } else {
                             emit(.status(.enhancementFailedPastingOriginal))
                             emit(.log(
-                                "Enhancement failed (model: \(model), \(latencyMs) ms): OpenRouter returned empty content.",
+                                "Enhancement failed (model: \(enhancementSettings.model), \(latencyMs) ms): " +
+                                    "\(enhancementSettings.provider.displayName) returned empty content.",
                                 .error
                             ))
-                            enhancementError = "OpenRouter returned empty content."
+                            enhancementError = "\(enhancementSettings.provider.displayName) returned empty content."
                             enhancementFailed = true
                         }
                     } catch is CancellationError {
@@ -154,7 +160,10 @@ final class PasteRuntime {
                             ? String(describing: error)
                             : error.localizedDescription
                         emit(.status(.enhancementFailedPastingOriginal))
-                        emit(.log("Enhancement failed (model: \(model), \(latencyMs) ms): \(reason)", .error))
+                        emit(.log(
+                            "Enhancement failed (model: \(enhancementSettings.model), \(latencyMs) ms): \(reason)",
+                            .error
+                        ))
                         enhancementError = reason
                         enhancementFailed = true
                     }

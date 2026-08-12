@@ -6,7 +6,9 @@ import SwiftUI
 final class SessionState: ObservableObject {
     static let maxLogEntries = 1_000
 
-    private let historyStore: TranscriptHistoryStore?
+    private let historyStore: (any TranscriptHistoryPersisting)?
+    private var pendingHistorySnapshot: [TranscriptHistoryEntry]?
+    private var pendingRemovedHistoryEntries: [TranscriptHistoryEntry] = []
 
     @Published var recordingPhase: RecordingPhase = .idle
     @Published var appStatus: AppStatus = .idle
@@ -15,7 +17,7 @@ final class SessionState: ObservableObject {
     @Published var logs: [LogEntry] = []
     @Published var transcriptHistory: [TranscriptHistoryEntry] = [] {
         didSet {
-            historyStore?.saveEntries(transcriptHistory)
+            historyDidChange(from: oldValue)
         }
     }
     @Published var overlayPulseID = UUID()
@@ -24,6 +26,9 @@ final class SessionState: ObservableObject {
     @Published var overlayAppIcon: NSImage?
     @Published var audioLevel: CGFloat = 0
     var onHistoryEntriesRemoved: (([TranscriptHistoryEntry]) -> Void)?
+    var onHistoryPersistenceError: ((String) -> Void)?
+    private(set) var historyPersistenceError: String?
+    private(set) var isHistoryPersisted = true
 
     var isRecording: Bool {
         recordingPhase == .recording
@@ -36,11 +41,13 @@ final class SessionState: ObservableObject {
     private var transcriptSegments: [String] = []
 
     init(
-        historyStore: TranscriptHistoryStore? = nil,
-        initialTranscriptHistory: [TranscriptHistoryEntry] = []
+        historyStore: (any TranscriptHistoryPersisting)? = nil,
+        initialTranscriptHistory: [TranscriptHistoryEntry] = [],
+        initialHistoryIsPersisted: Bool = true
     ) {
         self.historyStore = historyStore
-        self.transcriptHistory = initialTranscriptHistory
+        self._transcriptHistory = Published(initialValue: initialTranscriptHistory)
+        self.isHistoryPersisted = historyStore == nil || initialHistoryIsPersisted
     }
 
     func resetTranscript() {
@@ -85,8 +92,9 @@ final class SessionState: ObservableObject {
             onHistoryEntriesRemoved?([entry])
             return
         }
-        transcriptHistory.insert(entry, at: 0)
-        applyHistoryLimit(limit)
+
+        let retainedExistingEntries = transcriptHistory.prefix(max(0, limit.rawValue - 1))
+        transcriptHistory = [entry] + retainedExistingEntries
     }
 
     func addTranscriptToHistory(
@@ -142,19 +150,8 @@ final class SessionState: ObservableObject {
 
     func applyHistoryLimit(_ limit: HistoryLimit) {
         let max = limit.rawValue
-        if max == 0 {
-            let removedEntries = transcriptHistory
-            transcriptHistory.removeAll()
-            if !removedEntries.isEmpty {
-                onHistoryEntriesRemoved?(removedEntries)
-            }
-        } else if transcriptHistory.count > max {
-            let removedEntries = Array(transcriptHistory.suffix(transcriptHistory.count - max))
-            transcriptHistory.removeLast(transcriptHistory.count - max)
-            if !removedEntries.isEmpty {
-                onHistoryEntriesRemoved?(removedEntries)
-            }
-        }
+        guard transcriptHistory.count > max else { return }
+        transcriptHistory = Array(transcriptHistory.prefix(max))
     }
 
     func updateTranscriptHistoryEntry(
@@ -163,6 +160,77 @@ final class SessionState: ObservableObject {
     ) {
         guard let index = transcriptHistory.firstIndex(where: { $0.id == id }) else { return }
         transcriptHistory[index] = transform(transcriptHistory[index])
+    }
+
+    /// Retries the latest failed history save. Recording cleanup waits for this to succeed.
+    @discardableResult
+    func flushHistory() -> Bool {
+        guard let pendingHistorySnapshot else {
+            return isHistoryPersisted
+        }
+        return persistHistory(pendingHistorySnapshot)
+    }
+
+    private func historyDidChange(from previousEntries: [TranscriptHistoryEntry]) {
+        let currentIDs = Set(transcriptHistory.map(\.id))
+        pendingRemovedHistoryEntries.append(
+            contentsOf: previousEntries.filter { !currentIDs.contains($0.id) }
+        )
+
+        guard historyStore != nil else {
+            isHistoryPersisted = true
+            releasePendingHistoryCleanup()
+            return
+        }
+
+        pendingHistorySnapshot = transcriptHistory
+        isHistoryPersisted = false
+        _ = persistHistory(transcriptHistory)
+    }
+
+    private func persistHistory(_ entries: [TranscriptHistoryEntry]) -> Bool {
+        guard let historyStore else {
+            isHistoryPersisted = true
+            pendingHistorySnapshot = nil
+            historyPersistenceError = nil
+            releasePendingHistoryCleanup()
+            return true
+        }
+
+        do {
+            try historyStore.saveEntries(entries)
+            pendingHistorySnapshot = nil
+            historyPersistenceError = nil
+            isHistoryPersisted = true
+            releasePendingHistoryCleanup()
+            return true
+        } catch {
+            pendingHistorySnapshot = entries
+            isHistoryPersisted = false
+            let message = error.localizedDescription
+            historyPersistenceError = message
+            onHistoryPersistenceError?(message)
+            return false
+        }
+    }
+
+    private func releasePendingHistoryCleanup() {
+        guard !pendingRemovedHistoryEntries.isEmpty else { return }
+
+        let referencedRecordingPaths = Set(
+            transcriptHistory.compactMap { $0.rawRecordingFileURL?.standardizedFileURL.path }
+        )
+        var seenEntries = Set<UUID>()
+        let entriesToRemove = pendingRemovedHistoryEntries.filter { entry in
+            guard seenEntries.insert(entry.id).inserted else { return false }
+            guard let recordingURL = entry.rawRecordingFileURL else { return true }
+            return !referencedRecordingPaths.contains(recordingURL.standardizedFileURL.path)
+        }
+        pendingRemovedHistoryEntries.removeAll()
+
+        if !entriesToRemove.isEmpty {
+            onHistoryEntriesRemoved?(entriesToRemove)
+        }
     }
 }
 
@@ -246,9 +314,7 @@ struct TranscriptHistoryEntry: Codable, Identifiable {
     }
 
     var canRetryTranscription: Bool {
-        rawRecordingFileURL != nil &&
-        transcriptionLanguage != nil &&
-        (transcriptionError != nil || text.trimmed.isEmpty)
+        rawRecordingFileURL != nil
     }
 }
 

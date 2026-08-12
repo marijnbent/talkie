@@ -104,6 +104,7 @@ struct GeneralSettingsView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 12)
                     }
                     .frame(minHeight: 160, maxHeight: 220)
                 }

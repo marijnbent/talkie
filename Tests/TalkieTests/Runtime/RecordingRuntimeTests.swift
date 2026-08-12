@@ -6,6 +6,7 @@ import XCTest
 final class RecordingRuntimeTests: XCTestCase {
     private struct RuntimeHarness {
         let runtime: RecordingRuntime
+        let audio: FakeAudioCapturePort
         let deepgram: FakeDeepgramPort
         let scheduler: ManualScheduler
         let statuses: Box<[AppStatus]>
@@ -18,6 +19,7 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         XCTAssertEqual(harness.runtime.phase, .recording)
         XCTAssertEqual(harness.deepgram.connectCalls.count, 1)
 
@@ -36,10 +38,11 @@ final class RecordingRuntimeTests: XCTestCase {
 
         harness.runtime.handle(action: .stop)
         XCTAssertEqual(harness.runtime.phase, .finalizing)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         XCTAssertEqual(harness.deepgram.closeStreamCallCount, 1)
 
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
         XCTAssertEqual(harness.finalizations.value.count, 1)
         XCTAssertEqual(harness.runtime.phase, .idle)
     }
@@ -49,8 +52,10 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
         XCTAssertEqual(harness.runtime.phase, .finalizing)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
 
         harness.deepgram.emitConnectionDropped("during finalize")
         await Task.yield()
@@ -69,8 +74,10 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
         XCTAssertEqual(harness.runtime.phase, .finalizing)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
 
         harness.runtime.cancelFromEsc()
         XCTAssertEqual(harness.runtime.phase, .idle)
@@ -95,9 +102,11 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
 
         XCTAssertEqual(harness.finalizations.value.first?.enhancementPrompt, enhancement)
     }
@@ -109,9 +118,11 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
 
         XCTAssertEqual(harness.finalizations.value.first?.rawRecordingFileURL, recordingURL)
         XCTAssertEqual(harness.finalizations.value.first?.transcriptionLanguage, .automatic)
@@ -148,9 +159,11 @@ final class RecordingRuntimeTests: XCTestCase {
             icon: nil
         )
 
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
 
         XCTAssertEqual(harness.finalizations.value.first?.enhancementPrompt?.name, "Slack tidy")
         XCTAssertEqual(overlayUpdates.first?.0, true)
@@ -169,9 +182,11 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
 
         XCTAssertEqual(overlayUpdates.count, 2)
         XCTAssertEqual(overlayUpdates[0].0, true)
@@ -192,6 +207,7 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let ownerID = UUID()
         harness.runtime.handle(action: .start(ownerShortcutID: ownerID, ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
         XCTAssertEqual(harness.deepgram.connectCalls.map(\.language), [.english])
 
         resolvedLanguage = .french
@@ -201,10 +217,45 @@ final class RecordingRuntimeTests: XCTestCase {
         XCTAssertEqual(finalizedInterimCount, 1)
 
         harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
         harness.deepgram.completeClose()
-        await Task.yield()
+        await waitUntil { harness.finalizations.value.count == 1 }
 
         XCTAssertEqual(harness.finalizations.value.first?.transcriptionLanguage, .french)
+    }
+
+    func testRoutesOneConvertedChunkToRawCaptureAndDeepgram() async {
+        let harness = makeHarness()
+        harness.runtime.handle(
+            action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false)
+        )
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+        let audioData = Data([0x10, 0x00, 0x20, 0x00])
+
+        harness.audio.emit(Linear16AudioChunk(data: audioData, meterLevel: 0.5))
+
+        XCTAssertEqual(harness.rawRecordingCapture.appendedAudio, [audioData])
+        XCTAssertEqual(harness.deepgram.sentAudio, [audioData])
+    }
+
+    func testCancelDuringPendingCaptureStartCannotOpenAStaleSession() async {
+        let harness = makeHarness()
+        harness.audio.suspendStart = true
+        harness.runtime.handle(
+            action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false)
+        )
+        let sessionID = try! XCTUnwrap(harness.runtime.ownership?.sessionID)
+        await waitUntil { harness.audio.hasPendingStart }
+
+        harness.runtime.cancelFromEsc()
+        XCTAssertEqual(harness.runtime.phase, .idle)
+        harness.audio.completeStart()
+        await waitUntil { harness.audio.stoppedSessionIDs.contains(sessionID) }
+
+        XCTAssertTrue(harness.deepgram.connectCalls.isEmpty)
+        XCTAssertTrue(harness.rawRecordingCapture.appendedAudio.isEmpty)
+        XCTAssertTrue(harness.finalizations.value.isEmpty)
+        XCTAssertNil(harness.runtime.ownership)
     }
 
     private func makeHarness(
@@ -253,12 +304,24 @@ final class RecordingRuntimeTests: XCTestCase {
 
         return RuntimeHarness(
             runtime: runtime,
+            audio: audio,
             deepgram: deepgram,
             scheduler: scheduler,
             statuses: statuses,
             finalizations: finalizations,
             rawRecordingCapture: rawRecordingCapture
         )
+    }
+
+    private func waitUntil(
+        _ message: String = "Timed out waiting for asynchronous runtime work.",
+        condition: () -> Bool
+    ) async {
+        for _ in 0..<200 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail(message)
     }
 }
 

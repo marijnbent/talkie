@@ -4,14 +4,14 @@
 
 ![Talkie header](assets/readme-header.png)
 
-Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configurable modifier key to record, stream audio to Deepgram for transcription, optionally run the result through OpenRouter, and paste the final text back into the active app.
+Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configurable modifier key to record, stream audio to Deepgram for transcription, optionally enhance the result with OpenRouter or Celeris, and paste the final text back into the active app.
 
 ## What It Does
 
 - Streams microphone audio to Deepgram over WebSocket and shows live transcription state while you speak
 - Supports multiple configurable global shortcuts with `Hold`, `Click`, and `Both` activation modes
 - Auto-pastes the transcript into the frontmost app and restores the previous clipboard only after confirmed auto-paste
-- Routes OpenRouter prompts per shortcut, with optional per-app overrides based on the active macOS app
+- Routes enhancement prompts per shortcut, with optional per-app overrides based on the active macOS app
 - Shows a floating overlay with live audio level, recording/enhancing state, and active-app icon when an app override is used
 - Keeps transcript history (`None`, `10`, or `100` entries) and a rolling in-app log (`1,000` entries)
 
@@ -20,7 +20,7 @@ Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configura
 - macOS 13+
 - Swift 6.2 toolchain / Xcode with command line tools
 - A [Deepgram API key](https://console.deepgram.com)
-- An [OpenRouter API key](https://openrouter.ai) and model name if you want AI enhancement
+- An [OpenRouter](https://openrouter.ai) or [Celeris](https://console.celeris.ai) API key if you want AI enhancement
 
 ## Quick Start
 
@@ -54,7 +54,7 @@ Release settings live in [`release/Release.plist`](release/Release.plist). Entit
 4. Grant microphone permission for recording.
 5. Grant accessibility permission for paste automation and global shortcut handling.
 6. In `Shortcuts`, pick the modifier key(s) and activation mode(s) you want.
-7. Optional: in `Enhancements`, add your OpenRouter API key and model, then create prompts and assign them to shortcuts.
+7. Optional: in `Enhancements`, select OpenRouter or Celeris, add its credentials, then create prompts and assign them to shortcuts.
 
 The default shortcut is `Right Option` in `Both` mode.
 
@@ -89,13 +89,13 @@ Activation modes:
 
 ### Enhancements
 
-- OpenRouter API key
-- OpenRouter model name
+- OpenRouter or Celeris provider selection
+- Provider credentials
 - Prompt library with editable named prompts
 - Default prompt assignment per shortcut
 - Per-app prompt overrides chosen from the currently running apps
 
-When enhancement runs, the app appends the raw transcript inside `<transcription>...</transcription>` before sending the request to OpenRouter.
+When enhancement runs, the app appends the raw transcript inside `<transcription>...</transcription>` before sending the request to the selected provider.
 
 ## How A Recording Flows
 
@@ -103,12 +103,12 @@ When enhancement runs, the app appends the raw transcript inside `<transcription
 2. Audio is captured locally and streamed to Deepgram.
 3. The overlay shows recording state and live audio level.
 4. Releasing the shortcut, pressing again, or cancelling with `Esc` ends the session depending on mode.
-5. If a prompt is configured for that shortcut or active app, the transcript is sent to OpenRouter.
+5. If a prompt is configured for that shortcut or active app, the transcript is sent to the selected enhancement provider.
 6. The final text is copied to the clipboard and pasted with `Cmd+V`.
 7. If confirmed auto-paste clipboard restore is enabled, Talkie restores the previous clipboard only after it can verify the target app accepted the paste; otherwise it keeps the transcript on the clipboard so you can paste manually.
 8. History and logs are updated in-app.
 
-If OpenRouter enhancement fails, Talkie falls back to pasting the original transcript and records the failure in history/logs.
+If enhancement fails, Talkie falls back to pasting the original transcript and records the failure in history/logs.
 
 If the target field cannot be verified through Accessibility APIs, or the paste result does not exactly match the expected text and caret position, Talkie leaves the transcript on the clipboard instead of clearing it.
 
@@ -146,7 +146,7 @@ The package has no external Swift dependencies. The main targets are:
 - [`TalkieApp.swift`](Sources/TalkieCore/TalkieApp.swift): app bootstrap, dependency wiring, menu bar setup
 - [`RuntimeCoordinator.swift`](Sources/TalkieCore/RuntimeCoordinator.swift): coordinates shortcut, recording, paste, and overlay behavior
 - [`Runtime/RecordingRuntime.swift`](Sources/TalkieCore/Runtime/RecordingRuntime.swift): recording lifecycle, Deepgram connection, reconnect/finalize logic
-- [`Runtime/PasteRuntime.swift`](Sources/TalkieCore/Runtime/PasteRuntime.swift): OpenRouter enhancement, clipboard handling, auto-paste
+- [`Runtime/PasteRuntime.swift`](Sources/TalkieCore/Runtime/PasteRuntime.swift): provider-based enhancement, clipboard handling, auto-paste
 - [`Runtime/PasteVerification.swift`](Sources/TalkieCore/Runtime/PasteVerification.swift): Accessibility-based auto-paste verification and UTF-16-safe paste matching
 - [`SettingsStore.swift`](Sources/TalkieCore/SettingsStore.swift): persisted settings in `UserDefaults`
 - [`PromptRoutingService.swift`](Sources/TalkieCore/PromptRoutingService.swift): shortcut-level and app-level prompt resolution

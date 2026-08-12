@@ -16,7 +16,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         var events: [PasteRuntimeEvent] = []
@@ -30,8 +30,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -63,7 +62,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         await runtime.process(
@@ -74,8 +73,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: true
             )
@@ -115,7 +113,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
         runtime.onEvent = { event in
             if case .hideOverlay = event {
@@ -131,8 +129,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -150,7 +147,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in
+            enhancer: { _, _, _ in
                 XCTFail("Enhancer should not be called when credentials are missing")
                 return ""
             }
@@ -173,8 +170,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionLanguage: .english
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -183,7 +179,7 @@ final class PasteRuntimeTests: XCTestCase {
         XCTAssertEqual(pasteboard.writtenStrings.last, "raw transcript")
 
         let historyEntry = emittedEvents.compactMap(historyEntry).first
-        XCTAssertEqual(historyEntry?.enhancementError, "OpenRouter API key is not set.")
+        XCTAssertEqual(historyEntry?.enhancementError, "Celeris API key is not set.")
         XCTAssertEqual(historyEntry?.promptName, "Clean")
         XCTAssertEqual(historyEntry?.enhancementPromptText, "clean this")
         XCTAssertEqual(historyEntry?.rawRecordingFileURL, URL(fileURLWithPath: "/tmp/raw.wav"))
@@ -201,7 +197,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { transcript, _, _, _ in transcript.uppercased() }
+            enhancer: { transcript, _, _ in transcript.uppercased() }
         )
 
         var emittedEvents: [PasteRuntimeEvent] = []
@@ -219,8 +215,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "sk-test",
-                openRouterModel: "openai/gpt-4o-mini",
+                enhancement: celerisSettings(apiKey: "ck-test"),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -241,7 +236,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in
+            enhancer: { _, _, _ in
                 while !Task.isCancelled {
                     await Task.yield()
                 }
@@ -265,8 +260,7 @@ final class PasteRuntimeTests: XCTestCase {
                     transcriptionError: nil
                 ),
                 settings: PasteRuntimeSettings(
-                    openRouterApiKey: "sk-test",
-                    openRouterModel: "openai/gpt-4o-mini",
+                    enhancement: celerisSettings(apiKey: "ck-test"),
                     playSoundEffects: false,
                     restoreClipboardAfterPaste: false
                 )
@@ -296,7 +290,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         var emittedEvents: [PasteRuntimeEvent] = []
@@ -310,8 +304,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: true
             )
@@ -341,7 +334,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         var emittedEvents: [PasteRuntimeEvent] = []
@@ -355,8 +348,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: true
             )
@@ -384,7 +376,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         var emittedEvents: [PasteRuntimeEvent] = []
@@ -398,8 +390,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: true
             )
@@ -429,7 +420,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         await runtime.process(
@@ -440,8 +431,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -469,7 +459,7 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { _, _, _, _ in "" }
+            enhancer: { _, _, _ in "" }
         )
 
         await runtime.process(
@@ -480,8 +470,7 @@ final class PasteRuntimeTests: XCTestCase {
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                openRouterApiKey: "",
-                openRouterModel: "",
+                enhancement: celerisSettings(),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: true
             )
@@ -502,6 +491,10 @@ final class PasteRuntimeTests: XCTestCase {
             return entry
         }
         return nil
+    }
+
+    private func celerisSettings(apiKey: String = "") -> EnhancementProviderSettings {
+        EnhancementProviderSettings(provider: .celeris, apiKey: apiKey, model: CelerisClient.model)
     }
 
     private func matchesIdleStatus(_ event: PasteRuntimeEvent) -> Bool {

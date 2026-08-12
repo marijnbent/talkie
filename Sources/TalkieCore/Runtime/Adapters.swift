@@ -31,29 +31,29 @@ struct SystemClockAdapter: ClockPort {
     }
 }
 
-final class AudioCaptureControllerAdapter: AudioCapturePort {
+final class AudioCaptureControllerAdapter: AudioCapturePort, @unchecked Sendable {
     private let controller: AudioCaptureController
 
     init(controller: AudioCaptureController = AudioCaptureController()) {
         self.controller = controller
     }
 
-    var onBuffer: ((AVAudioPCMBuffer) -> Void)? {
-        get { controller.onBuffer }
-        set { controller.onBuffer = newValue }
+    var onAudioChunk: (@Sendable (UUID, Linear16AudioChunk) -> Void)? {
+        get { controller.onAudioChunk }
+        set { controller.onAudioChunk = newValue }
     }
 
-    var onConfigurationChanged: (() -> Void)? {
+    var onConfigurationChanged: (@Sendable (UUID) -> Void)? {
         get { controller.onConfigurationChanged }
         set { controller.onConfigurationChanged = newValue }
     }
 
-    func start() throws -> AudioStreamFormat {
-        try controller.start()
+    func start(sessionID: UUID) async throws -> AudioStreamFormat {
+        try await controller.start(sessionID: sessionID)
     }
 
-    func stop() {
-        controller.stop()
+    func stop(sessionID: UUID) async {
+        await controller.stop(sessionID: sessionID)
     }
 }
 
@@ -84,8 +84,8 @@ final class DeepgramClientAdapter: DeepgramPort, @unchecked Sendable {
         client.connect(apiKey: apiKey, format: format, language: language)
     }
 
-    func sendAudio(buffer: AVAudioPCMBuffer) {
-        client.sendAudio(buffer: buffer)
+    func sendAudio(data: Data) {
+        client.sendAudio(data: data)
     }
 
     func closeStream(onClosed: @escaping () -> Void) {

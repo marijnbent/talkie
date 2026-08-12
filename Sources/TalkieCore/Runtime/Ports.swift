@@ -16,11 +16,11 @@ protocol ClockPort {
     func now() -> TimeInterval
 }
 
-protocol AudioCapturePort: AnyObject {
-    var onBuffer: ((AVAudioPCMBuffer) -> Void)? { get set }
-    var onConfigurationChanged: (() -> Void)? { get set }
-    func start() throws -> AudioStreamFormat
-    func stop()
+protocol AudioCapturePort: AnyObject, Sendable {
+    var onAudioChunk: (@Sendable (UUID, Linear16AudioChunk) -> Void)? { get set }
+    var onConfigurationChanged: (@Sendable (UUID) -> Void)? { get set }
+    func start(sessionID: UUID) async throws -> AudioStreamFormat
+    func stop(sessionID: UUID) async
 }
 
 protocol DeepgramPort: AnyObject {
@@ -30,7 +30,7 @@ protocol DeepgramPort: AnyObject {
     var onConnectionDropped: ((String) -> Void)? { get set }
 
     func connect(apiKey: String, format: AudioStreamFormat, language: DeepgramLanguage)
-    func sendAudio(buffer: AVAudioPCMBuffer)
+    func sendAudio(data: Data)
     func closeStream(onClosed: @escaping () -> Void)
     func disconnect()
 }

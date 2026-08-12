@@ -53,7 +53,7 @@ private struct PromptEditorSheet: View {
                     )
             }
 
-            Text("The transcript is appended automatically inside <transcription> tags before the OpenRouter request is sent.")
+            Text("The transcript is appended automatically inside <transcription> tags before the enhancement request is sent.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -79,7 +79,7 @@ struct EnhancementsSettingsView: View {
 
     var body: some View {
         Form {
-            openRouterSection
+            providerSection
             promptLibrarySection
             routingSections
         }
@@ -106,17 +106,30 @@ struct EnhancementsSettingsView: View {
     }
 
     @ViewBuilder
-    private var openRouterSection: some View {
+    private var providerSection: some View {
         Section {
-            SecureField("API Key", text: viewModel.binding(for: \.openRouterApiKey))
-            TextField("Model", text: viewModel.binding(for: \.openRouterModel))
+            Picker("Provider", selection: viewModel.binding(for: \.enhancementProvider)) {
+                ForEach(EnhancementProvider.allCases) { provider in
+                    Text(provider.displayName).tag(provider)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            switch viewModel.enhancementProvider {
+            case .openRouter:
+                SecureField("API Key", text: viewModel.binding(for: \.openRouterApiKey))
+                TextField("Model", text: viewModel.binding(for: \.openRouterModel))
+            case .celeris:
+                SecureField("API Key", text: viewModel.binding(for: \.celerisApiKey))
+            }
         } header: {
-            Text("OpenRouter")
+            Text("Provider")
         } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("These credentials are used whenever a prompt is applied to a transcript.")
+            switch viewModel.enhancementProvider {
+            case .openRouter:
                 Text("Suggested model: `inception/mercury-2`.")
-                Text("Use this one if you want the fastest enhancement response.")
+            case .celeris:
+                Text("Celeris uses the `celeris-1` model.")
             }
         }
     }

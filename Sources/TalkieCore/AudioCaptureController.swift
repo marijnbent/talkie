@@ -1,12 +1,12 @@
 @preconcurrency import AVFoundation
 import Foundation
 
-struct AudioStreamFormat {
+struct AudioStreamFormat: Sendable, Equatable {
     let sampleRate: Int
     let channels: Int
 }
 
-final class AudioCaptureController: NSObject {
+final class AudioCaptureController: NSObject, @unchecked Sendable {
     private final class ConverterInputSource: @unchecked Sendable {
         private let buffer: AVAudioPCMBuffer
         private var didProvideBuffer = false
@@ -51,16 +51,44 @@ final class AudioCaptureController: NSObject {
     }
 
     private let preferredInputProvider: () -> AudioInputSelection
+    private let sessionQueue = DispatchQueue(label: "Talkie.AudioCapture.Session")
     private let outputQueue = DispatchQueue(label: "Talkie.AudioCapture.Output")
+    private let callbackLock = NSLock()
 
     private var session: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
     private var currentInputDeviceUniqueID: String?
     private var currentFormat: AudioStreamFormat?
-    private var isRunning = false
+    private var activeSessionID: UUID?
+    private var outputSessionID: UUID?
+    private var audioChunkHandler: (@Sendable (UUID, Linear16AudioChunk) -> Void)?
+    private var configurationChangedHandler: (@Sendable (UUID) -> Void)?
 
-    var onBuffer: ((AVAudioPCMBuffer) -> Void)?
-    var onConfigurationChanged: (() -> Void)?
+    var onAudioChunk: (@Sendable (UUID, Linear16AudioChunk) -> Void)? {
+        get {
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            return audioChunkHandler
+        }
+        set {
+            callbackLock.lock()
+            audioChunkHandler = newValue
+            callbackLock.unlock()
+        }
+    }
+
+    var onConfigurationChanged: (@Sendable (UUID) -> Void)? {
+        get {
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            return configurationChangedHandler
+        }
+        set {
+            callbackLock.lock()
+            configurationChangedHandler = newValue
+            callbackLock.unlock()
+        }
+    }
 
     init(preferredInputProvider: @escaping () -> AudioInputSelection = { .systemDefault }) {
         self.preferredInputProvider = preferredInputProvider
@@ -68,18 +96,55 @@ final class AudioCaptureController: NSObject {
     }
 
     deinit {
-        removeObservers()
+        NotificationCenter.default.removeObserver(self)
     }
 
-    func start() throws -> AudioStreamFormat {
-        guard !isRunning else {
-            if let currentFormat {
-                return currentFormat
+    func start(sessionID: UUID) async throws -> AudioStreamFormat {
+        let selection = preferredInputProvider()
+        try Task.checkCancellation()
+
+        let format = try await withCheckedThrowingContinuation { continuation in
+            sessionQueue.async { [self] in
+                do {
+                    continuation.resume(returning: try startOnSessionQueue(
+                        sessionID: sessionID,
+                        selection: selection
+                    ))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-            return AudioStreamFormat(sampleRate: 16_000, channels: 1)
         }
 
-        guard let device = AudioInputCatalog.captureDevice(for: preferredInputProvider()) else {
+        if Task.isCancelled {
+            await stop(sessionID: sessionID)
+            throw CancellationError()
+        }
+        return format
+    }
+
+    func stop(sessionID: UUID) async {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async { [self] in
+                stopSessionOnSessionQueue(sessionID: sessionID)
+                continuation.resume()
+            }
+        }
+    }
+
+    private func startOnSessionQueue(
+        sessionID: UUID,
+        selection: AudioInputSelection
+    ) throws -> AudioStreamFormat {
+        if activeSessionID == sessionID, let currentFormat {
+            return currentFormat
+        }
+
+        if let activeSessionID {
+            stopSessionOnSessionQueue(sessionID: activeSessionID)
+        }
+
+        guard let device = AudioInputCatalog.captureDevice(for: selection) else {
             throw CaptureError.noInputDeviceAvailable
         }
 
@@ -113,20 +178,18 @@ final class AudioCaptureController: NSObject {
         self.audioOutput = audioOutput
         currentInputDeviceUniqueID = device.uniqueID
         currentFormat = format
+        activeSessionID = sessionID
+        setOutputSessionID(sessionID)
         installObservers(for: session)
 
         session.startRunning()
-        isRunning = true
 
         return format
     }
 
-    func stop() {
-        guard isRunning else { return }
-        stopSession()
-    }
-
-    private func stopSession() {
+    private func stopSessionOnSessionQueue(sessionID: UUID) {
+        guard activeSessionID == sessionID else { return }
+        setOutputSessionID(nil)
         audioOutput?.setSampleBufferDelegate(nil, queue: nil)
         session?.stopRunning()
         removeObservers()
@@ -134,7 +197,7 @@ final class AudioCaptureController: NSObject {
         audioOutput = nil
         currentInputDeviceUniqueID = nil
         currentFormat = nil
-        isRunning = false
+        activeSessionID = nil
     }
 
     private func installObservers(for session: AVCaptureSession) {
@@ -161,19 +224,49 @@ final class AudioCaptureController: NSObject {
     }
 
     @objc private func handleSessionRuntimeError(_ notification: Notification) {
-        handleConfigurationChange()
+        guard let observedSession = notification.object as? AVCaptureSession else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.session === observedSession else { return }
+            self.handleConfigurationChangeOnSessionQueue()
+        }
     }
 
     @objc private func handleCaptureDeviceDisconnected(_ notification: Notification) {
         guard let device = notification.object as? AVCaptureDevice else { return }
-        guard device.uniqueID == currentInputDeviceUniqueID else { return }
-        handleConfigurationChange()
+        let uniqueID = device.uniqueID
+        sessionQueue.async { [weak self] in
+            guard let self, uniqueID == self.currentInputDeviceUniqueID else { return }
+            self.handleConfigurationChangeOnSessionQueue()
+        }
     }
 
-    private func handleConfigurationChange() {
-        guard isRunning else { return }
-        stopSession()
-        onConfigurationChanged?()
+    private func handleConfigurationChangeOnSessionQueue() {
+        guard let sessionID = activeSessionID else { return }
+        stopSessionOnSessionQueue(sessionID: sessionID)
+        let callback = readConfigurationChangedHandler()
+        callback?(sessionID)
+    }
+
+    private func setOutputSessionID(_ sessionID: UUID?) {
+        callbackLock.lock()
+        outputSessionID = sessionID
+        callbackLock.unlock()
+    }
+
+    private func readConfigurationChangedHandler() -> (@Sendable (UUID) -> Void)? {
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
+        return configurationChangedHandler
+    }
+
+    private func outputCallback() -> (
+        UUID,
+        @Sendable (UUID, Linear16AudioChunk) -> Void
+    )? {
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
+        guard let outputSessionID, let audioChunkHandler else { return nil }
+        return (outputSessionID, audioChunkHandler)
     }
 
     private static func streamFormat(for device: AVCaptureDevice) -> AudioStreamFormat? {
@@ -263,7 +356,11 @@ extension AudioCaptureController: AVCaptureAudioDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard let buffer = Self.pcmBuffer(from: sampleBuffer) else { return }
-        onBuffer?(buffer)
+        guard let (sessionID, callback) = outputCallback(),
+              let buffer = Self.pcmBuffer(from: sampleBuffer),
+              let chunk = AudioBufferConverter.linear16Chunk(from: buffer) else {
+            return
+        }
+        callback(sessionID, chunk)
     }
 }

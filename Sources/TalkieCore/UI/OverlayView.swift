@@ -35,9 +35,7 @@ struct OverlayView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
-        .overlay(cardBorder)
+        .modifier(OverlayCardSurface(cornerRadius: cardCornerRadius))
         .scaleEffect(appear ? 1.0 : 0.96)
         .opacity(appear ? 1.0 : 0.0)
         .offset(y: appear ? 0 : -8)
@@ -66,15 +64,39 @@ struct OverlayView: View {
         }
     }
 
-    private var cardBackground: some View {
-        OverlayGlassBackground(cornerRadius: cardCornerRadius)
+}
+
+private struct OverlayCardSurface: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var reduceTransparency: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
 
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), !reduceTransparency {
+            content.glassEffect(
+                .clear,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+        } else {
+            content
+                .background(OverlayGlassBackground(cornerRadius: cornerRadius))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(fallbackBorder)
+        }
+    }
+
+    private var fallbackBorder: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .stroke(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.34), Color.white.opacity(0.08)],
+                    colors: [
+                        Color.white.opacity(colorScheme == .dark ? 0.34 : 0.58),
+                        Color.white.opacity(colorScheme == .dark ? 0.08 : 0.16),
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
@@ -84,6 +106,7 @@ struct OverlayView: View {
 }
 
 private struct LanguageCycleButton: View {
+    @Environment(\.colorScheme) private var colorScheme
     let language: DeepgramLanguage
     let action: () -> Void
 
@@ -98,14 +121,14 @@ private struct LanguageCycleButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
+        .foregroundStyle(Color.primary.opacity(colorScheme == .dark ? 1 : 0.62))
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.055))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                .stroke(Color.primary.opacity(colorScheme == .dark ? 0.22 : 0.10), lineWidth: 1)
         )
         .help("Change language")
         .accessibilityLabel("Change language")
@@ -139,33 +162,32 @@ private struct OverlayGlassBackground: View {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
 
-    private var tintOpacity: Double {
-        if reduceTransparency {
-            return 0.95
-        }
-
-        return colorScheme == .dark ? 0.24 : 0.16
-    }
-
     private var highlightOpacity: Double {
         if reduceTransparency {
             return 0.04
         }
 
-        return colorScheme == .dark ? 0.18 : 0.24
+        return colorScheme == .dark ? 0.14 : 0.16
+    }
+
+    private var glowOpacity: Double {
+        guard !reduceTransparency else { return 0 }
+        return colorScheme == .dark ? 0.08 : 0.07
     }
 
     var body: some View {
         ZStack {
             VisualEffectBackdropView(material: .hudWindow)
 
-            Color(NSColor.windowBackgroundColor)
-                .opacity(tintOpacity)
+            if reduceTransparency {
+                Color(NSColor.windowBackgroundColor)
+                    .opacity(0.95)
+            }
 
             LinearGradient(
                 colors: [
                     Color.white.opacity(highlightOpacity),
-                    Color.white.opacity(0.06),
+                    Color.white.opacity(0.03),
                     Color.white.opacity(0)
                 ],
                 startPoint: .topLeading,
@@ -174,7 +196,7 @@ private struct OverlayGlassBackground: View {
 
             RadialGradient(
                 colors: [
-                    Color.white.opacity(reduceTransparency ? 0 : 0.14),
+                    Color.white.opacity(glowOpacity),
                     Color.white.opacity(0)
                 ],
                 center: .topLeading,
@@ -199,6 +221,7 @@ private struct OverlayAppIcon: View {
 }
 
 private struct MiniWaveform: View {
+    @Environment(\.colorScheme) private var colorScheme
     let level: CGFloat
 
     private let barCount = 5
@@ -212,7 +235,7 @@ private struct MiniWaveform: View {
         HStack(spacing: spacing) {
             ForEach(0..<barCount, id: \.self) { i in
                 RoundedRectangle(cornerRadius: barWidth / 2)
-                    .fill(Color.white.opacity(0.92))
+                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.92 : 0.58))
                     .frame(width: barWidth, height: barHeight(for: i))
             }
         }
@@ -225,6 +248,7 @@ private struct MiniWaveform: View {
 }
 
 private struct SparkleStars: View {
+    @Environment(\.colorScheme) private var colorScheme
     @State private var animate = false
 
     var body: some View {
@@ -239,7 +263,7 @@ private struct SparkleStars: View {
 
     private func star(size: CGFloat, opacity: Double, dx: CGFloat, dy: CGFloat, duration: Double) -> some View {
         StarShape()
-            .fill(.white.opacity(opacity))
+            .fill(Color.primary.opacity(opacity * (colorScheme == .dark ? 1 : 0.55)))
             .frame(width: size, height: size)
             .offset(x: animate ? dx : -dx, y: animate ? dy : -dy)
             .animation(
@@ -268,6 +292,7 @@ private struct StarShape: Shape {
 }
 
 private struct PulseOrb: View {
+    @Environment(\.colorScheme) private var colorScheme
     let pulse: Bool
     var enhancing: Bool = false
 
@@ -275,7 +300,7 @@ private struct PulseOrb: View {
         ZStack {
             if enhancing {
                 Circle()
-                    .fill(Color.white.opacity(0.5))
+                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.5 : 0.3))
                     .frame(width: 9, height: 9)
             } else {
                 Circle()

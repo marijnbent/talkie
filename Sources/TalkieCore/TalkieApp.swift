@@ -62,6 +62,7 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
     public func applicationWillTerminate(_ notification: Notification) {
         runtimeCoordinator.stop()
         escCancelMonitor.stop()
+        sessionState.flushHistory()
         NotificationCenter.default.removeObserver(
             self,
             name: NSApplication.didBecomeActiveNotification,
@@ -76,16 +77,40 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
 
     @objc private func handleAppDidBecomeActive(_ notification: Notification) {
         permissionService.refreshPermissions()
+        sessionState.flushHistory()
     }
 
     private func configureState() {
         settingsStore = SettingsStore()
         transcriptHistoryStore = TranscriptHistoryStore()
         rawRecordingStore = RawRecordingStore()
-        let savedHistory = transcriptHistoryStore.loadEntries()
+        let initialHistory: [TranscriptHistoryEntry]
+        let initialHistoryIsPersisted: Bool
+        var initialHistoryError: String?
+        do {
+            let savedHistory = try transcriptHistoryStore.loadEntries()
+            let migratedHistory = rawRecordingStore.migrateLegacyRecordings(in: savedHistory)
+            if Self.hasMatchingRecordingReferences(savedHistory, migratedHistory) {
+                initialHistory = savedHistory
+            } else {
+                do {
+                    try transcriptHistoryStore.saveEntries(migratedHistory)
+                    initialHistory = migratedHistory
+                } catch {
+                    initialHistory = savedHistory
+                    initialHistoryError = error.localizedDescription
+                }
+            }
+            initialHistoryIsPersisted = true
+        } catch {
+            initialHistory = []
+            initialHistoryIsPersisted = false
+            initialHistoryError = error.localizedDescription
+        }
         sessionState = SessionState(
             historyStore: transcriptHistoryStore,
-            initialTranscriptHistory: savedHistory
+            initialTranscriptHistory: initialHistory,
+            initialHistoryIsPersisted: initialHistoryIsPersisted
         )
         permissionService = PermissionService()
         mainViewModel = MainViewModel()
@@ -102,8 +127,29 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
                 rawRecordingStore?.deleteRecording(at: entry.rawRecordingFileURL)
             }
         }
+        sessionState.onHistoryPersistenceError = { [weak sessionState] message in
+            sessionState?.addLog("Failed to save transcript history: \(message)", level: .error)
+        }
+        if let initialHistoryError {
+            sessionState.addLog("Failed to load or migrate transcript history: \(initialHistoryError)", level: .error)
+        }
         sessionState.applyHistoryLimit(settingsStore.historyLimit)
-        rawRecordingStore.pruneRecordings(keeping: sessionState.transcriptHistory.compactMap(\.rawRecordingFileURL))
+        if sessionState.isHistoryPersisted {
+            rawRecordingStore.pruneRecordings(
+                keeping: sessionState.transcriptHistory.compactMap(\.rawRecordingFileURL)
+            )
+        }
+    }
+
+    private static func hasMatchingRecordingReferences(
+        _ lhs: [TranscriptHistoryEntry],
+        _ rhs: [TranscriptHistoryEntry]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { lhsEntry, rhsEntry in
+            lhsEntry.id == rhsEntry.id &&
+                lhsEntry.rawRecordingFileURL == rhsEntry.rawRecordingFileURL
+        }
     }
 
     private func configureWindows() {

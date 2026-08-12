@@ -1,6 +1,10 @@
 import Foundation
 
-final class TranscriptHistoryStore {
+protocol TranscriptHistoryPersisting: AnyObject {
+    func saveEntries(_ entries: [TranscriptHistoryEntry]) throws
+}
+
+final class TranscriptHistoryStore: TranscriptHistoryPersisting {
     private let fileManager: FileManager
     private let fileURL: URL
     private let encoder = JSONEncoder()
@@ -14,46 +18,38 @@ final class TranscriptHistoryStore {
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    func loadEntries() -> [TranscriptHistoryEntry] {
+    func loadEntries() throws -> [TranscriptHistoryEntry] {
         guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
 
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let entries = try decoder.decode([TranscriptHistoryEntry].self, from: data)
-            return entries.map { entry in
-                guard let rawRecordingFileURL = entry.rawRecordingFileURL else { return entry }
-                guard fileManager.fileExists(atPath: rawRecordingFileURL.path) else {
-                    return TranscriptHistoryEntry(
-                        id: entry.id,
-                        timestamp: entry.timestamp,
-                        text: entry.text,
-                        enhancedText: entry.enhancedText,
-                        transcriptionError: entry.transcriptionError,
-                        enhancementError: entry.enhancementError,
-                        promptName: entry.promptName,
-                        enhancementPromptText: entry.enhancementPromptText,
-                        rawRecordingFileURL: nil,
-                        transcriptionLanguage: entry.transcriptionLanguage,
-                        usedActiveAppPrompt: entry.usedActiveAppPrompt
-                    )
-                }
-
-                return entry
+        let data = try Data(contentsOf: fileURL)
+        let entries = try decoder.decode([TranscriptHistoryEntry].self, from: data)
+        return entries.map { entry in
+            guard let rawRecordingFileURL = entry.rawRecordingFileURL else { return entry }
+            guard fileManager.fileExists(atPath: rawRecordingFileURL.path) else {
+                return TranscriptHistoryEntry(
+                    id: entry.id,
+                    timestamp: entry.timestamp,
+                    text: entry.text,
+                    enhancedText: entry.enhancedText,
+                    transcriptionError: entry.transcriptionError,
+                    enhancementError: entry.enhancementError,
+                    promptName: entry.promptName,
+                    enhancementPromptText: entry.enhancementPromptText,
+                    rawRecordingFileURL: nil,
+                    transcriptionLanguage: entry.transcriptionLanguage,
+                    usedActiveAppPrompt: entry.usedActiveAppPrompt
+                )
             }
-        } catch {
-            return []
+
+            return entry
         }
     }
 
-    func saveEntries(_ entries: [TranscriptHistoryEntry]) {
-        do {
-            let directory = fileURL.deletingLastPathComponent()
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try encoder.encode(entries)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            return
-        }
+    func saveEntries(_ entries: [TranscriptHistoryEntry]) throws {
+        let directory = fileURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try encoder.encode(entries)
+        try data.write(to: fileURL, options: .atomic)
     }
 
     private static func defaultFileURL(fileManager: FileManager) -> URL {

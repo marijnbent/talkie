@@ -7,9 +7,7 @@ final class HistoryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        // Set to 10 (the default) rather than removing, because integer(forKey:)
-        // returns 0 for missing keys, which maps to HistoryLimit.none.
-        UserDefaults.standard.set(HistoryLimit.ten.rawValue, forKey: historyLimitKey)
+        UserDefaults.standard.removeObject(forKey: historyLimitKey)
     }
 
     override func tearDown() {
@@ -52,9 +50,15 @@ final class HistoryTests: XCTestCase {
 
     // MARK: - History Limit
 
-    func testHistoryLimitDefaultsToTen() {
-        let state = AppState()
-        XCTAssertEqual(state.historyLimit, .ten)
+    func testHistoryLimitDefaultsToTen() throws {
+        let suiteName = "TalkieTests.HistoryLimit.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settingsStore = SettingsStore(defaults: defaults)
+
+        XCTAssertEqual(settingsStore.historyLimit, .ten)
     }
 
     func testHistoryLimitNonePreventsAdding() {
@@ -123,7 +127,7 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(restored.historyLimit, .hundred)
     }
 
-    func testTranscriptHistoryStorePersistsEntries() {
+    func testTranscriptHistoryStorePersistsEntries() throws {
         let temporaryDirectoryURL = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
         let recordingURL = temporaryDirectoryURL.appendingPathComponent("test.wav")
@@ -145,8 +149,8 @@ final class HistoryTests: XCTestCase {
             usedActiveAppPrompt: true
         )
 
-        store.saveEntries([entry])
-        let restored = store.loadEntries()
+        try store.saveEntries([entry])
+        let restored = try store.loadEntries()
 
         XCTAssertEqual(restored.count, 1)
         XCTAssertEqual(restored[0].id, entry.id)
@@ -160,7 +164,7 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(restored[0].usedActiveAppPrompt)
     }
 
-    func testTranscriptHistoryStoreDropsMissingRecordingURLs() {
+    func testTranscriptHistoryStoreDropsMissingRecordingURLs() throws {
         let temporaryDirectoryURL = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
         let missingRecordingURL = temporaryDirectoryURL.appendingPathComponent("missing.wav")
@@ -174,12 +178,117 @@ final class HistoryTests: XCTestCase {
             transcriptionLanguage: .english
         )
 
-        store.saveEntries([entry])
-        let restored = store.loadEntries()
+        try store.saveEntries([entry])
+        let restored = try store.loadEntries()
 
         XCTAssertEqual(restored.count, 1)
         XCTAssertNil(restored[0].rawRecordingFileURL)
         XCTAssertEqual(restored[0].transcriptionLanguage, .english)
+    }
+
+    func testTranscriptHistoryStoreTreatsMissingFileAsEmptyHistory() throws {
+        let temporaryDirectoryURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+        let store = TranscriptHistoryStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("missing-history.json")
+        )
+
+        XCTAssertTrue(try store.loadEntries().isEmpty)
+    }
+
+    func testTranscriptHistoryStoreReportsInvalidHistoryFile() throws {
+        let temporaryDirectoryURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("history.json")
+        try Data("not valid history JSON".utf8).write(to: fileURL)
+        let store = TranscriptHistoryStore(fileURL: fileURL)
+
+        XCTAssertThrowsError(try store.loadEntries())
+    }
+
+    func testFailedHistorySaveIsObservableAndFlushRetriesLatestSnapshot() {
+        let store = ControlledHistoryStore(failuresRemaining: 1)
+        let state = SessionState(historyStore: store)
+        var reportedErrors: [String] = []
+        state.onHistoryPersistenceError = { reportedErrors.append($0) }
+
+        state.storeTranscriptHistoryEntry(
+            TranscriptHistoryEntry(timestamp: Date(), text: "Newest"),
+            limit: .ten
+        )
+
+        XCTAssertFalse(state.isHistoryPersisted)
+        XCTAssertNotNil(state.historyPersistenceError)
+        XCTAssertEqual(reportedErrors.count, 1)
+        XCTAssertEqual(store.attemptedSnapshots.count, 1)
+
+        XCTAssertTrue(state.flushHistory())
+        XCTAssertTrue(state.isHistoryPersisted)
+        XCTAssertNil(state.historyPersistenceError)
+        XCTAssertEqual(store.attemptedSnapshots.count, 2)
+        XCTAssertEqual(store.savedSnapshots.last?.map(\.text), ["Newest"])
+    }
+
+    func testAddingAtLimitPersistsFinalSnapshotOnceBeforeDeletingRemovedRecording() {
+        let store = ControlledHistoryStore()
+        let oldestRecordingURL = URL(fileURLWithPath: "/tmp/oldest.wav")
+        let initialEntries = (0..<10).map { index in
+            TranscriptHistoryEntry(
+                timestamp: Date(),
+                text: "Entry \(index)",
+                rawRecordingFileURL: index == 9 ? oldestRecordingURL : nil
+            )
+        }
+        let state = SessionState(historyStore: store, initialTranscriptHistory: initialEntries)
+        var removedEntries: [TranscriptHistoryEntry] = []
+        state.onHistoryEntriesRemoved = { removedEntries.append(contentsOf: $0) }
+
+        state.storeTranscriptHistoryEntry(
+            TranscriptHistoryEntry(timestamp: Date(), text: "Newest"),
+            limit: .ten
+        )
+
+        XCTAssertEqual(store.attemptedSnapshots.count, 1)
+        XCTAssertEqual(store.savedSnapshots.first?.count, 10)
+        XCTAssertEqual(store.savedSnapshots.first?.first?.text, "Newest")
+        XCTAssertFalse(store.savedSnapshots.first?.contains(where: { $0.text == "Entry 9" }) ?? true)
+        XCTAssertEqual(removedEntries.map(\.rawRecordingFileURL), [oldestRecordingURL])
+    }
+
+    func testFailedLimitSaveDefersRecordingDeletionUntilFlushSucceeds() {
+        let store = ControlledHistoryStore(failuresRemaining: 1)
+        let removedRecordingURL = URL(fileURLWithPath: "/tmp/removed.wav")
+        let initialEntries = (0..<11).map { index in
+            TranscriptHistoryEntry(
+                timestamp: Date(),
+                text: "Entry \(index)",
+                rawRecordingFileURL: index == 10 ? removedRecordingURL : nil
+            )
+        }
+        let state = SessionState(historyStore: store, initialTranscriptHistory: initialEntries)
+        var removedEntries: [TranscriptHistoryEntry] = []
+        state.onHistoryEntriesRemoved = { removedEntries.append(contentsOf: $0) }
+
+        state.applyHistoryLimit(.ten)
+
+        XCTAssertFalse(state.isHistoryPersisted)
+        XCTAssertTrue(removedEntries.isEmpty)
+
+        XCTAssertTrue(state.flushHistory())
+        XCTAssertEqual(removedEntries.map(\.rawRecordingFileURL), [removedRecordingURL])
+    }
+
+    func testUnconfirmedInitialHistoryCannotBeFlushedWithoutAPendingSnapshot() {
+        let store = ControlledHistoryStore()
+        let state = SessionState(
+            historyStore: store,
+            initialTranscriptHistory: [],
+            initialHistoryIsPersisted: false
+        )
+
+        XCTAssertFalse(state.isHistoryPersisted)
+        XCTAssertFalse(state.flushHistory())
+        XCTAssertTrue(store.attemptedSnapshots.isEmpty)
     }
 
     // MARK: - Display Text
@@ -303,6 +412,18 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(entry.canRetryTranscription)
     }
 
+    func testCanRetryTranscriptionWhenExistingTranscriptIsIncorrect() {
+        let entry = TranscriptHistoryEntry(
+            timestamp: Date(),
+            text: "Incorrect Dutch output",
+            enhancedText: "Incorrect enhanced output",
+            rawRecordingFileURL: URL(fileURLWithPath: "/tmp/test.wav"),
+            transcriptionLanguage: .dutch
+        )
+
+        XCTAssertTrue(entry.canRetryTranscription)
+    }
+
     func testCanRetryTranscriptionIsFalseWithoutSavedRecording() {
         let entry = TranscriptHistoryEntry(
             timestamp: Date(),
@@ -356,4 +477,27 @@ final class HistoryTests: XCTestCase {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+}
+
+private final class ControlledHistoryStore: TranscriptHistoryPersisting {
+    private(set) var failuresRemaining: Int
+    private(set) var attemptedSnapshots: [[TranscriptHistoryEntry]] = []
+    private(set) var savedSnapshots: [[TranscriptHistoryEntry]] = []
+
+    init(failuresRemaining: Int = 0) {
+        self.failuresRemaining = failuresRemaining
+    }
+
+    func saveEntries(_ entries: [TranscriptHistoryEntry]) throws {
+        attemptedSnapshots.append(entries)
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw ControlledHistoryStoreError.saveFailed
+        }
+        savedSnapshots.append(entries)
+    }
+}
+
+private enum ControlledHistoryStoreError: Error {
+    case saveFailed
 }

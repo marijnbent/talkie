@@ -65,32 +65,59 @@ final class ManualScheduler: SchedulerPort {
     }
 }
 
-final class FakeAudioCapturePort: AudioCapturePort {
+final class FakeAudioCapturePort: AudioCapturePort, @unchecked Sendable {
     enum TestError: Error {
         case startFailed
     }
 
-    var onBuffer: ((AVAudioPCMBuffer) -> Void)?
-    var onConfigurationChanged: (() -> Void)?
+    var onAudioChunk: (@Sendable (UUID, Linear16AudioChunk) -> Void)?
+    var onConfigurationChanged: (@Sendable (UUID) -> Void)?
     var startCallCount = 0
     var stopCallCount = 0
     var startFormat = AudioStreamFormat(sampleRate: 16_000, channels: 1)
     var shouldFailStart = false
+    var suspendStart = false
+    var startedSessionIDs: [UUID] = []
+    var stoppedSessionIDs: [UUID] = []
+    private var startContinuation: CheckedContinuation<AudioStreamFormat, Error>?
 
-    func start() throws -> AudioStreamFormat {
+    func start(sessionID: UUID) async throws -> AudioStreamFormat {
         startCallCount += 1
+        startedSessionIDs.append(sessionID)
         if shouldFailStart {
             throw TestError.startFailed
+        }
+        if suspendStart {
+            return try await withCheckedThrowingContinuation { continuation in
+                startContinuation = continuation
+            }
         }
         return startFormat
     }
 
-    func stop() {
+    func stop(sessionID: UUID) async {
         stopCallCount += 1
+        stoppedSessionIDs.append(sessionID)
     }
 
-    func emitConfigurationChange() {
-        onConfigurationChanged?()
+    var hasPendingStart: Bool {
+        startContinuation != nil
+    }
+
+    func completeStart() {
+        let continuation = startContinuation
+        startContinuation = nil
+        continuation?.resume(returning: startFormat)
+    }
+
+    func emit(_ chunk: Linear16AudioChunk, sessionID: UUID? = nil) {
+        guard let sessionID = sessionID ?? startedSessionIDs.last else { return }
+        onAudioChunk?(sessionID, chunk)
+    }
+
+    func emitConfigurationChange(sessionID: UUID? = nil) {
+        guard let sessionID = sessionID ?? startedSessionIDs.last else { return }
+        onConfigurationChanged?(sessionID)
     }
 }
 
@@ -107,7 +134,7 @@ final class FakeDeepgramPort: DeepgramPort {
     var onConnectionDropped: ((String) -> Void)?
 
     var connectCalls: [ConnectCall] = []
-    var sendAudioCallCount = 0
+    var sentAudio: [Data] = []
     var disconnectCallCount = 0
     var closeStreamCallCount = 0
     var closeCallbacks: [() -> Void] = []
@@ -116,8 +143,8 @@ final class FakeDeepgramPort: DeepgramPort {
         connectCalls.append(ConnectCall(apiKey: apiKey, format: format, language: language))
     }
 
-    func sendAudio(buffer: AVAudioPCMBuffer) {
-        sendAudioCallCount += 1
+    func sendAudio(data: Data) {
+        sentAudio.append(data)
     }
 
     func closeStream(onClosed: @escaping () -> Void) {
@@ -148,18 +175,18 @@ final class FakeDeepgramPort: DeepgramPort {
     }
 }
 
-final class FakeRawRecordingCapture: RawRecordingCapture {
-    var appendCallCount = 0
+final class FakeRawRecordingCapture: RawRecordingCapture, @unchecked Sendable {
+    var appendedAudio: [Data] = []
     var discarded = false
     var finishCallCount = 0
     var finishResult: URL?
     var finishError: Error?
 
-    func append(buffer: AVAudioPCMBuffer) {
-        appendCallCount += 1
+    func append(data: Data) {
+        appendedAudio.append(data)
     }
 
-    func finish() throws -> URL? {
+    func finish() async throws -> URL? {
         finishCallCount += 1
         if let finishError {
             throw finishError
@@ -234,19 +261,23 @@ final class FakePasteVerificationPort: PasteVerificationPort {
 final class FakeEventMonitorPort: EventMonitorPort {
     var keyDownInterceptor: ((CGKeyCode) -> Bool)?
     var removedMonitorCount = 0
+    private var globalMonitorHandler: ((NSEvent) -> Void)?
+    private var localMonitorHandler: ((NSEvent) -> NSEvent?)?
 
     func addGlobalMonitor(
         matching mask: NSEvent.EventTypeMask,
         handler: @escaping (NSEvent) -> Void
     ) -> Any? {
-        nil
+        globalMonitorHandler = handler
+        return "globalMonitor"
     }
 
     func addLocalMonitor(
         matching mask: NSEvent.EventTypeMask,
         handler: @escaping (NSEvent) -> NSEvent?
     ) -> Any? {
-        nil
+        localMonitorHandler = handler
+        return "localMonitor"
     }
 
     func addKeyDownInterceptor(handler: @escaping (CGKeyCode) -> Bool) -> Any? {
@@ -256,12 +287,43 @@ final class FakeEventMonitorPort: EventMonitorPort {
 
     func removeMonitor(_ monitor: Any) {
         removedMonitorCount += 1
-        keyDownInterceptor = nil
+        switch monitor as? String {
+        case "globalMonitor":
+            globalMonitorHandler = nil
+        case "localMonitor":
+            localMonitorHandler = nil
+        case "keyDownInterceptor":
+            keyDownInterceptor = nil
+        default:
+            break
+        }
     }
 
     @discardableResult
     func sendKeyDown(_ keyCode: CGKeyCode) -> Bool {
         keyDownInterceptor?(keyCode) ?? false
+    }
+
+    func sendLocalFlagsChanged(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        timestamp: TimeInterval
+    ) {
+        guard let event = NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: timestamp,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            return
+        }
+        _ = localMonitorHandler?(event)
     }
 }
 

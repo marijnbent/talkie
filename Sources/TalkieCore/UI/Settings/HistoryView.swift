@@ -4,7 +4,7 @@ struct HistoryView: View {
     @ObservedObject var viewModel: HistoryViewModel
 
     var body: some View {
-        Form {
+        List {
             if viewModel.historyLimit == .none {
                 Section {
                     Text("History is off because Keep history is set to None in General settings.")
@@ -30,6 +30,10 @@ struct HistoryView: View {
 
                         if let enhancementError = entry.enhancementError {
                             issueRow(label: "Enhancement error", message: enhancementError)
+                        }
+
+                        if let retryError = viewModel.retryError(for: entry.id) {
+                            issueRow(label: "Retry error", message: retryError)
                         }
 
                         if let savedPromptLabel = entry.savedEnhancementPromptLabel {
@@ -73,7 +77,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .listStyle(.inset)
     }
 
     private func historyRow(label: String?, text: String, entryID: UUID) -> some View {
@@ -127,15 +131,19 @@ struct HistoryView: View {
     private func retryActionsRow(_ entry: TranscriptHistoryEntry) -> some View {
         HStack(spacing: 8) {
             if entry.canRetryTranscription {
-                Button {
-                    viewModel.retryTranscription(for: entry)
+                Menu {
+                    ForEach(viewModel.retryTranscriptionLanguages) { language in
+                        Button(language.displayName) {
+                            viewModel.retryTranscription(for: entry, language: language)
+                        }
+                    }
                 } label: {
-                    Image(systemName: "waveform")
+                    Label("Transcribe again", systemImage: "waveform")
                 }
-                .buttonStyle(.borderless)
+                .menuStyle(.borderlessButton)
                 .font(.caption)
                 .disabled(viewModel.isRetrying(entry.id))
-                .help("Retry transcription and enhancement from saved recording")
+                .help("Choose a language and transcribe the saved recording again")
             }
 
             if entry.canRetryEnhancement {

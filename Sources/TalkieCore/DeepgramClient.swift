@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 
 final class DeepgramClient: NSObject, @unchecked Sendable {
@@ -14,7 +13,6 @@ final class DeepgramClient: NSObject, @unchecked Sendable {
     private let onConnectionDropped: ((String) -> Void)?
     private var onClose: (() -> Void)?
     private var closeTimer: DispatchSourceTimer?
-    private var droppedAudioBufferCount = 0
     private var decodeFailureCount = 0
     private var binaryDecodeFailureCount = 0
 
@@ -83,18 +81,8 @@ final class DeepgramClient: NSObject, @unchecked Sendable {
         receiveLoop(for: task)
     }
 
-    func sendAudio(buffer: AVAudioPCMBuffer) {
-        guard let data = AudioBufferConverter.linear16Data(from: buffer) else {
-            let dropCount = queue.sync { () -> Int in
-                droppedAudioBufferCount += 1
-                return droppedAudioBufferCount
-            }
-            if Self.shouldLogOccurrence(dropCount) {
-                onLog?("Dropped audio buffer during linear16 conversion (\(dropCount) total drops).", .warning)
-            }
-            return
-        }
-
+    func sendAudio(data: Data) {
+        guard !data.isEmpty else { return }
         queue.async { [weak self] in
             guard let self else { return }
             guard let task = self.task, self.isConnected, !self.isClosing else { return }

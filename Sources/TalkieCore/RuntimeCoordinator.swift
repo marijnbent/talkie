@@ -52,12 +52,11 @@ final class RuntimeCoordinator {
             pasteboard: pasteboardPort,
             pasteVerification: pasteVerificationPort,
             scheduler: schedulerPort,
-            enhancer: { transcript, prompt, apiKey, model in
-                try await OpenRouterClient.enhance(
+            enhancer: { transcript, prompt, settings in
+                try await EnhancementClient.enhance(
                     transcript: transcript,
                     prompt: prompt,
-                    apiKey: apiKey,
-                    model: model
+                    settings: settings
                 )
             }
         )
@@ -121,6 +120,10 @@ final class RuntimeCoordinator {
     }
 
     func stop() {
+        recordingRuntime.cancelFromEsc()
+        pasteTask?.cancel()
+        pasteTask = nil
+        systemMuteController.restoreMute()
         shortcutRuntime.stop()
     }
 
@@ -159,6 +162,9 @@ final class RuntimeCoordinator {
         }
         shortcutRuntime.onActions = { [weak self] actions in
             self?.handleShortcutActions(actions)
+        }
+        shortcutRuntime.onCycleLanguage = { [weak self] in
+            self?.cycleLanguage()
         }
         windowCoordinator.onCycleLanguage = { [weak self] in
             self?.cycleLanguage()
@@ -218,8 +224,7 @@ final class RuntimeCoordinator {
                         transcriptionLanguage: finalization.transcriptionLanguage
                     ),
                     settings: PasteRuntimeSettings(
-                        openRouterApiKey: self.settingsStore.openRouterApiKey,
-                        openRouterModel: self.settingsStore.openRouterModel,
+                        enhancement: self.settingsStore.enhancementProviderSettings,
                         playSoundEffects: self.settingsStore.playSoundEffects,
                         restoreClipboardAfterPaste: self.settingsStore.restoreClipboardAfterPaste
                     )

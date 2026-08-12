@@ -3,87 +3,81 @@ import XCTest
 
 @MainActor
 final class EnhancementTests: XCTestCase {
+    private let enhancementProviderKey = "Talkie.EnhancementProvider"
     private let openRouterApiKeyKey = "Talkie.OpenRouterApiKey"
     private let openRouterModelKey = "Talkie.OpenRouterModel"
+    private let celerisApiKeyKey = "Talkie.CelerisApiKey"
     private let enhancementPromptsKey = "Talkie.EnhancementPrompts"
     private let promptsKey = "Talkie.Prompts"
     private let shortcutsKey = "Talkie.Shortcuts"
 
     override func setUp() {
         super.setUp()
+        UserDefaults.standard.removeObject(forKey: enhancementProviderKey)
         UserDefaults.standard.removeObject(forKey: openRouterApiKeyKey)
         UserDefaults.standard.removeObject(forKey: openRouterModelKey)
+        UserDefaults.standard.removeObject(forKey: celerisApiKeyKey)
         UserDefaults.standard.removeObject(forKey: enhancementPromptsKey)
         UserDefaults.standard.removeObject(forKey: promptsKey)
         UserDefaults.standard.removeObject(forKey: shortcutsKey)
     }
 
     override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: enhancementProviderKey)
         UserDefaults.standard.removeObject(forKey: openRouterApiKeyKey)
         UserDefaults.standard.removeObject(forKey: openRouterModelKey)
+        UserDefaults.standard.removeObject(forKey: celerisApiKeyKey)
         UserDefaults.standard.removeObject(forKey: enhancementPromptsKey)
         UserDefaults.standard.removeObject(forKey: promptsKey)
         UserDefaults.standard.removeObject(forKey: shortcutsKey)
         super.tearDown()
     }
 
-    // MARK: - OpenRouter Credentials
+    // MARK: - Provider Credentials
 
-    func testOpenRouterApiKeyDefaultsToEmpty() {
+    func testEnhancementProviderDefaultsToOpenRouter() {
         let state = AppState()
-        XCTAssertEqual(state.openRouterApiKey, "")
+        XCTAssertEqual(state.enhancementProvider, .openRouter)
     }
 
-    func testOpenRouterModelDefaultsToEmpty() {
+    func testEnhancementProviderPersists() {
         let state = AppState()
-        XCTAssertEqual(state.openRouterModel, "")
-    }
-
-    func testHasOpenRouterCredentialsFalseWhenEmpty() {
-        let state = AppState()
-        XCTAssertFalse(state.hasOpenRouterCredentials)
-    }
-
-    func testHasOpenRouterCredentialsFalseWithOnlyApiKey() {
-        let state = AppState()
-        state.openRouterApiKey = "sk-test"
-        XCTAssertFalse(state.hasOpenRouterCredentials)
-    }
-
-    func testHasOpenRouterCredentialsFalseWithOnlyModel() {
-        let state = AppState()
-        state.openRouterModel = "openai/gpt-4o-mini"
-        XCTAssertFalse(state.hasOpenRouterCredentials)
-    }
-
-    func testHasOpenRouterCredentialsTrueWhenBothSet() {
-        let state = AppState()
-        state.openRouterApiKey = "sk-test"
-        state.openRouterModel = "openai/gpt-4o-mini"
-        XCTAssertTrue(state.hasOpenRouterCredentials)
-    }
-
-    func testHasOpenRouterCredentialsFalseWithWhitespaceOnly() {
-        let state = AppState()
-        state.openRouterApiKey = "  "
-        state.openRouterModel = "  "
-        XCTAssertFalse(state.hasOpenRouterCredentials)
-    }
-
-    func testOpenRouterApiKeyPersists() {
-        let state = AppState()
-        state.openRouterApiKey = "sk-persisted"
+        state.enhancementProvider = .celeris
 
         let restored = AppState()
-        XCTAssertEqual(restored.openRouterApiKey, "sk-persisted")
+        XCTAssertEqual(restored.enhancementProvider, .celeris)
     }
 
-    func testOpenRouterModelPersists() {
+    func testOpenRouterCredentialsRequireApiKeyAndModel() {
         let state = AppState()
-        state.openRouterModel = "anthropic/claude-3"
+        state.enhancementProvider = .openRouter
+        state.openRouterApiKey = "sk-test"
+        XCTAssertFalse(state.hasEnhancementCredentials)
+
+        state.openRouterModel = "openai/gpt-4o-mini"
+        XCTAssertTrue(state.hasEnhancementCredentials)
+    }
+
+    func testCelerisApiKeyDefaultsToEmpty() {
+        let state = AppState()
+        XCTAssertEqual(state.celerisApiKey, "")
+    }
+
+    func testCelerisCredentialsRequireApiKey() {
+        let state = AppState()
+        state.enhancementProvider = .celeris
+        XCTAssertFalse(state.hasEnhancementCredentials)
+
+        state.celerisApiKey = "ck-test"
+        XCTAssertTrue(state.hasEnhancementCredentials)
+    }
+
+    func testCelerisApiKeyPersists() {
+        let state = AppState()
+        state.celerisApiKey = "ck-persisted"
 
         let restored = AppState()
-        XCTAssertEqual(restored.openRouterModel, "anthropic/claude-3")
+        XCTAssertEqual(restored.celerisApiKey, "ck-persisted")
     }
 
     // MARK: - Named Prompts
@@ -276,7 +270,22 @@ final class EnhancementTests: XCTestCase {
         XCTAssertFalse(prompt.content.isEmpty)
     }
 
-    // MARK: - OpenRouterError
+    // MARK: - CelerisError
+
+    func testCelerisErrorInvalidResponseDescription() {
+        let error = CelerisError.invalidResponse
+        XCTAssertEqual(error.errorDescription, "Invalid response from Celeris.")
+    }
+
+    func testCelerisErrorHttpErrorDescription() {
+        let error = CelerisError.httpError(statusCode: 401, body: "Unauthorized")
+        XCTAssertEqual(error.errorDescription, "Celeris HTTP 401: Unauthorized")
+    }
+
+    func testCelerisErrorNoContentDescription() {
+        let error = CelerisError.noContent
+        XCTAssertEqual(error.errorDescription, "Celeris returned no content.")
+    }
 
     func testOpenRouterErrorInvalidResponseDescription() {
         let error = OpenRouterError.invalidResponse
@@ -288,11 +297,6 @@ final class EnhancementTests: XCTestCase {
         XCTAssertEqual(error.errorDescription, "OpenRouter HTTP 401: Unauthorized")
     }
 
-    func testOpenRouterErrorNoContentDescription() {
-        let error = OpenRouterError.noContent
-        XCTAssertEqual(error.errorDescription, "OpenRouter returned no content.")
-    }
-
     // MARK: - Missing Credentials with Enhancement Enabled
 
     func testEnhancementEnabledButMissingApiKeyLogsWarning() {
@@ -300,20 +304,7 @@ final class EnhancementTests: XCTestCase {
         let prompt = PromptConfig(id: UUID(), name: "Fix", content: "fix it")
         state.prompts.append(prompt)
         state.shortcuts[0].promptID = prompt.id
-        state.openRouterModel = "openai/gpt-4o-mini"
-
         XCTAssertNotNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
-        XCTAssertFalse(state.hasOpenRouterCredentials)
-    }
-
-    func testEnhancementEnabledButMissingModelLogsWarning() {
-        let state = AppState()
-        let prompt = PromptConfig(id: UUID(), name: "Fix", content: "fix it")
-        state.prompts.append(prompt)
-        state.shortcuts[0].promptID = prompt.id
-        state.openRouterApiKey = "sk-test"
-
-        XCTAssertNotNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
-        XCTAssertFalse(state.hasOpenRouterCredentials)
+        XCTAssertFalse(state.hasEnhancementCredentials)
     }
 }

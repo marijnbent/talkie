@@ -13,12 +13,16 @@ final class ShortcutRuntime {
     private var lastShortcutEventTimestamp: TimeInterval = 0
     private var lastShortcutEventKeyCode: UInt16 = 0
     private var lastShortcutEventModifiers: NSEvent.ModifierFlags = []
+    private var isSuperCapsLockPressed = false
+    private var isCyclingLanguageWithSuperCapsLock = false
 
     private let shortcutEventDedupWindow: TimeInterval = 0.02
+    private let superCapsLockModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
 
     var phaseProvider: (() -> RecordingPhase)?
     var ownershipProvider: (() -> RecordingOwnership?)?
     var onActions: (([ShortcutAction]) -> Void)?
+    var onCycleLanguage: (() -> Void)?
 
     init(
         eventMonitor: EventMonitorPort,
@@ -72,6 +76,8 @@ final class ShortcutRuntime {
             eventMonitor.removeMonitor(monitor)
             shortcutLocalMonitor = nil
         }
+        isSuperCapsLockPressed = false
+        isCyclingLanguageWithSuperCapsLock = false
     }
 
     private func handleShortcutEvent(_ event: NSEvent) {
@@ -86,6 +92,24 @@ final class ShortcutRuntime {
         lastShortcutEventTimestamp = event.timestamp
         lastShortcutEventKeyCode = event.keyCode
         lastShortcutEventModifiers = normalizedModifiers
+
+        let wasSuperCapsLockPressed = isSuperCapsLockPressed
+        isSuperCapsLockPressed = normalizedModifiers.contains(superCapsLockModifiers)
+
+        if !wasSuperCapsLockPressed,
+           isSuperCapsLockPressed,
+           phaseProvider?() == .recording {
+            isCyclingLanguageWithSuperCapsLock = true
+            onCycleLanguage?()
+            return
+        }
+
+        if isCyclingLanguageWithSuperCapsLock {
+            if !isSuperCapsLockPressed {
+                isCyclingLanguageWithSuperCapsLock = false
+            }
+            return
+        }
 
         for listener in hotkeyListeners.values {
             listener.handle(event: event)
