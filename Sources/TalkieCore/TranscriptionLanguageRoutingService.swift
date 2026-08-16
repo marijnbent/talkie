@@ -13,7 +13,7 @@ enum TranscriptionLanguageRoutingService {
             return language
         }
 
-        return settings.deepgramLanguage
+        return settings.transcriptionProvider.normalizedLanguage(settings.deepgramLanguage)
     }
 
     static func upsertAppOverride(
@@ -30,7 +30,9 @@ enum TranscriptionLanguageRoutingService {
             appDisplayName,
             fallback: normalizedBundleIdentifier
         )
-        let resolvedLanguage = language ?? settings.deepgramLanguage
+        let resolvedLanguage = settings.transcriptionProvider.normalizedLanguage(
+            language ?? settings.deepgramLanguage
+        )
 
         if let overrideIndex = settings.appTranscriptionLanguageOverrides.firstIndex(where: {
             $0.normalizedAppBundleIdentifier == normalizedBundleIdentifier

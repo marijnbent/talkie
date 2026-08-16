@@ -56,10 +56,10 @@ final class HistoryViewModelTests: XCTestCase {
             settingsStore: SettingsStore(defaults: defaults),
             sessionState: sessionState,
             enhancer: { transcript, _, _ in "Enhanced: \(transcript)" },
-            transcriber: { fileURL, apiKey, language in
+            transcriber: { fileURL, settings, language in
                 try await transcriber.transcribe(
                     fileURL: fileURL,
-                    apiKey: apiKey,
+                    settings: settings,
                     languageRawValue: language.rawValue
                 )
             }
@@ -71,6 +71,7 @@ final class HistoryViewModelTests: XCTestCase {
         let calls = await transcriber.calls()
         let call = try XCTUnwrap(calls.first)
         XCTAssertEqual(call.fileURL, recordingURL)
+        XCTAssertEqual(call.provider, .deepgram)
         XCTAssertEqual(call.apiKey, "deepgram-key")
         XCTAssertEqual(call.languageRawValue, DeepgramLanguage.english.rawValue)
 
@@ -114,10 +115,10 @@ final class HistoryViewModelTests: XCTestCase {
             settingsStore: SettingsStore(defaults: defaults),
             sessionState: sessionState,
             enhancer: { _, _, _ in "Unexpected enhancement" },
-            transcriber: { fileURL, apiKey, language in
+            transcriber: { fileURL, settings, language in
                 try await transcriber.transcribe(
                     fileURL: fileURL,
-                    apiKey: apiKey,
+                    settings: settings,
                     languageRawValue: language.rawValue
                 )
             }
@@ -161,10 +162,10 @@ final class HistoryViewModelTests: XCTestCase {
             settingsStore: SettingsStore(defaults: defaults),
             sessionState: sessionState,
             enhancer: { _, _, _ in "Unexpected enhancement" },
-            transcriber: { fileURL, apiKey, language in
+            transcriber: { fileURL, settings, language in
                 try await transcriber.transcribe(
                     fileURL: fileURL,
-                    apiKey: apiKey,
+                    settings: settings,
                     languageRawValue: language.rawValue
                 )
             }
@@ -177,6 +178,44 @@ final class HistoryViewModelTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
         try assertHistoryPreserved(in: sessionState, expected: entry)
         XCTAssertEqual(viewModel.retryError(for: entry.id), "Deepgram returned no transcript.")
+    }
+
+    func testRetryTranscriptionUsesSelectedElevenLabsKey() async throws {
+        let temporaryDirectoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+        let recordingURL = temporaryDirectoryURL.appendingPathComponent("recording.wav")
+        try Data([0]).write(to: recordingURL)
+
+        let defaults = makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+        defaults.set(TranscriptionProvider.elevenLabs.rawValue, forKey: SettingsStore.transcriptionProviderKey)
+        defaults.set("eleven-key", forKey: SettingsStore.elevenLabsApiKeyKey)
+
+        let entry = TranscriptHistoryEntry(
+            timestamp: Date(),
+            text: "Old transcript",
+            rawRecordingFileURL: recordingURL
+        )
+        let transcriber = TranscriberSpy(result: .success("New transcript"))
+        let viewModel = HistoryViewModel(
+            settingsStore: SettingsStore(defaults: defaults),
+            sessionState: SessionState(initialTranscriptHistory: [entry]),
+            transcriber: { fileURL, settings, language in
+                try await transcriber.transcribe(
+                    fileURL: fileURL,
+                    settings: settings,
+                    languageRawValue: language.rawValue
+                )
+            }
+        )
+
+        viewModel.retryTranscription(for: entry, language: .automatic)
+        await waitForRetryToFinish(entry.id, in: viewModel)
+
+        let calls = await transcriber.calls()
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertEqual(call.provider, .elevenLabs)
+        XCTAssertEqual(call.apiKey, "eleven-key")
     }
 
     private func waitForRetryToFinish(
@@ -242,6 +281,7 @@ final class HistoryViewModelTests: XCTestCase {
 private actor TranscriberSpy {
     struct Call: Sendable {
         let fileURL: URL
+        let provider: TranscriptionProvider
         let apiKey: String
         let languageRawValue: String
     }
@@ -260,11 +300,16 @@ private actor TranscriberSpy {
 
     func transcribe(
         fileURL: URL,
-        apiKey: String,
+        settings: TranscriptionProviderSettings,
         languageRawValue: String
     ) throws -> String {
         recordedCalls.append(
-            Call(fileURL: fileURL, apiKey: apiKey, languageRawValue: languageRawValue)
+            Call(
+                fileURL: fileURL,
+                provider: settings.provider,
+                apiKey: settings.apiKey,
+                languageRawValue: languageRawValue
+            )
         )
 
         switch result {

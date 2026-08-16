@@ -4,164 +4,263 @@ struct HistoryView: View {
     @ObservedObject var viewModel: HistoryViewModel
 
     var body: some View {
-        List {
-            if viewModel.historyLimit == .none {
-                Section {
-                    Text("History is off because Keep history is set to None in General settings.")
-                        .foregroundStyle(.secondary)
-                }
-            }
+        let entries = viewModel.transcriptHistory
+        let retryLanguages = viewModel.retryTranscriptionLanguages
 
-            if viewModel.transcriptHistory.isEmpty {
-                Section {
-                    Text("No transcriptions yet.")
-                        .foregroundStyle(.secondary)
-                }
+        Group {
+            if entries.isEmpty {
+                emptyState
             } else {
-                ForEach(viewModel.transcriptHistory) { entry in
-                    Section {
-                        if let transcriptionError = entry.transcriptionError {
-                            issueRow(
-                                label: "Transcription error",
-                                message: transcriptionError,
-                                showsIcon: entry.shouldShowTranscriptionWarningIcon
-                            )
-                        }
-
-                        if let enhancementError = entry.enhancementError {
-                            issueRow(label: "Enhancement error", message: enhancementError)
-                        }
-
-                        if let retryError = viewModel.retryError(for: entry.id) {
-                            issueRow(label: "Retry error", message: retryError)
-                        }
-
-                        if let savedPromptLabel = entry.savedEnhancementPromptLabel {
-                            LabeledContent("Saved prompt") {
-                                Text(savedPromptLabel)
-                                    .foregroundStyle(.secondary)
+                List(entries) { entry in
+                    HistoryEntryCard(
+                        entry: entry,
+                        isExpanded: viewModel.isExpanded(entry.id),
+                        isRetrying: viewModel.isRetrying(entry.id),
+                        retryError: viewModel.retryError(for: entry.id),
+                        retryLanguages: retryLanguages,
+                        onToggleExpansion: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                viewModel.toggleExpansion(entry.id)
                             }
+                        },
+                        onCopy: viewModel.copy,
+                        onRetryTranscription: { language in
+                            viewModel.retryTranscription(for: entry, language: language)
+                        },
+                        onRetryEnhancement: {
+                            viewModel.retryEnhancement(for: entry)
                         }
-
-                        if let promptName = entry.promptName {
-                            LabeledContent("Prompt name") {
-                                Text(promptName)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        if entry.promptName != nil || entry.savedEnhancementPromptLabel != nil {
-                            LabeledContent("Prompt source") {
-                                Text(entry.promptSourceLabel)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        let original = entry.text.trimmed
-                        let enhanced = entry.enhancedText?.trimmed ?? ""
-                        if !original.isEmpty, !enhanced.isEmpty {
-                            historyRow(label: "Original", text: original, entryID: entry.id)
-                            historyRow(label: "Enhanced", text: enhanced, entryID: entry.id)
-                        } else if !enhanced.isEmpty {
-                            historyRow(label: "Enhanced", text: enhanced, entryID: entry.id)
-                        } else if !original.isEmpty {
-                            historyRow(label: nil, text: original, entryID: entry.id)
-                        }
-
-                        if entry.canRetryTranscription || entry.canRetryEnhancement {
-                            retryActionsRow(entry)
-                        }
-                    } header: {
-                        Text(MainView.formatter.string(from: entry.timestamp))
-                    }
+                    )
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
         }
-        .listStyle(.inset)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func historyRow(label: String?, text: String, entryID: UUID) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                if let label {
-                    Text(label)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                Text(text)
-                    .lineLimit(viewModel.isExpanded(entryID) ? nil : 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            viewModel.toggleExpansion(entryID)
-                        }
-                    }
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: viewModel.historyLimit == .none ? "clock.badge.xmark" : "text.bubble")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text(viewModel.historyLimit == .none ? "History is off" : "No transcriptions yet")
+                .font(.headline)
+            if viewModel.historyLimit == .none {
+                Text("Choose a history limit in General settings to save transcriptions.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, minHeight: 360)
+        .padding(24)
+    }
+}
+
+private struct HistoryEntryCard: View {
+    let entry: TranscriptHistoryEntry
+    let isExpanded: Bool
+    let isRetrying: Bool
+    let retryError: String?
+    let retryLanguages: [DeepgramLanguage]
+    let onToggleExpansion: () -> Void
+    let onCopy: (String) -> Void
+    let onRetryTranscription: (DeepgramLanguage) -> Void
+    let onRetryEnhancement: () -> Void
+
+    private var original: String { entry.text.trimmed }
+    private var enhanced: String { entry.enhancedText?.trimmed ?? "" }
+    private var hasRetryActions: Bool { entry.canRetryTranscription || entry.canRetryEnhancement }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+
+            if let transcriptionError = entry.transcriptionError {
+                issue(
+                    title: "Transcription error",
+                    message: transcriptionError,
+                    showsIcon: entry.shouldShowTranscriptionWarningIcon
+                )
             }
 
-            Button {
-                viewModel.copy(text)
-            } label: {
-                Image(systemName: "doc.on.doc")
+            if let enhancementError = entry.enhancementError {
+                issue(title: "Enhancement error", message: enhancementError)
             }
-            .buttonStyle(.borderless)
-            .font(.caption)
-            .help("Copy \(label?.lowercased() ?? "transcript")")
+
+            if let retryError {
+                issue(title: "Retry error", message: retryError)
+            }
+
+            transcriptContent
+
+            if hasRetryActions {
+                retryActions
+            }
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         }
     }
 
-    private func issueRow(label: String, message: String, showsIcon: Bool = true) -> some View {
-        HStack(alignment: .top, spacing: showsIcon ? 6 : 0) {
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(entry.timestamp, format: .dateTime.day().month(.abbreviated).hour().minute())
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Spacer(minLength: 12)
+
+            if let promptName = promptName {
+                Label(promptName, systemImage: "wand.and.stars")
+                    .lineLimit(1)
+                    .help(savedPromptHelp)
+            }
+
+            if entry.promptName != nil || entry.savedEnhancementPromptLabel != nil {
+                Text(entry.promptSourceLabel)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
+    }
+
+    @ViewBuilder
+    private var transcriptContent: some View {
+        if !original.isEmpty, !enhanced.isEmpty {
+            transcript(
+                title: "Original",
+                text: original,
+                systemImage: "waveform",
+                isEmphasized: false
+            )
+            transcript(
+                title: "Enhanced",
+                text: enhanced,
+                systemImage: "sparkles",
+                isEmphasized: true
+            )
+        } else if !enhanced.isEmpty {
+            transcript(title: nil, text: enhanced, systemImage: "sparkles", isEmphasized: true)
+        } else if !original.isEmpty {
+            transcript(title: nil, text: original, systemImage: "waveform", isEmphasized: false)
+        }
+    }
+
+    private func transcript(
+        title: String?,
+        text: String,
+        systemImage: String,
+        isEmphasized: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                if let title {
+                    Text(title)
+                }
+                Spacer()
+                Button {
+                    onCopy(text)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .help("Copy \(title?.lowercased() ?? "transcript")")
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isEmphasized ? Color.accentColor : .secondary)
+
+            Text(text)
+                .lineLimit(isExpanded ? nil : 4)
+                .lineSpacing(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(11)
+        .background(
+            isEmphasized
+                ? Color.accentColor.opacity(0.07)
+                : Color(nsColor: .textBackgroundColor)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggleExpansion)
+        .help(isExpanded ? "Collapse transcript" : "Expand transcript")
+    }
+
+    private func issue(title: String, message: String, showsIcon: Bool = true) -> some View {
+        HStack(alignment: .top, spacing: 8) {
             if showsIcon {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                Text(title)
+                    .font(.caption.weight(.semibold))
                 Text(message)
                     .font(.caption)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
-    private func retryActionsRow(_ entry: TranscriptHistoryEntry) -> some View {
-        HStack(spacing: 8) {
+    private var retryActions: some View {
+        HStack(spacing: 12) {
             if entry.canRetryTranscription {
                 Menu {
-                    ForEach(viewModel.retryTranscriptionLanguages) { language in
+                    ForEach(retryLanguages) { language in
                         Button(language.displayName) {
-                            viewModel.retryTranscription(for: entry, language: language)
+                            onRetryTranscription(language)
                         }
                     }
                 } label: {
                     Label("Transcribe again", systemImage: "waveform")
                 }
                 .menuStyle(.borderlessButton)
-                .font(.caption)
-                .disabled(viewModel.isRetrying(entry.id))
+                .disabled(isRetrying)
                 .help("Choose a language and transcribe the saved recording again")
             }
 
             if entry.canRetryEnhancement {
-                Button {
-                    viewModel.retryEnhancement(for: entry)
-                } label: {
-                    Image(systemName: "wand.and.stars")
+                Button(action: onRetryEnhancement) {
+                    Label("Enhance again", systemImage: "wand.and.stars")
                 }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .disabled(viewModel.isRetrying(entry.id))
+                .buttonStyle(.plain)
+                .disabled(isRetrying)
                 .help("Retry enhancement")
             }
 
-            if viewModel.isRetrying(entry.id) {
+            Spacer()
+
+            if isRetrying {
                 ProgressView()
                     .controlSize(.small)
             }
         }
+        .font(.caption)
+    }
+
+    private var promptName: String? {
+        if let promptName = entry.promptName?.trimmed, !promptName.isEmpty {
+            return promptName
+        }
+        return entry.savedEnhancementPromptLabel
+    }
+
+    private var savedPromptHelp: String {
+        entry.enhancementPromptText?.trimmed ?? promptName ?? ""
     }
 }

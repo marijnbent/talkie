@@ -3,7 +3,10 @@ import Foundation
 @MainActor
 final class SettingsStore: ObservableObject {
     static let apiKeyKey = "Talkie.ApiKey"
+    static let transcriptionProviderKey = "Talkie.TranscriptionProvider"
+    static let elevenLabsApiKeyKey = "Talkie.ElevenLabsApiKey"
     static let deepgramLanguageKey = "Talkie.DeepgramLanguage"
+    static let automaticLanguageCandidatesKey = "Talkie.AutomaticLanguageCandidates"
     static let starredDeepgramLanguagesKey = "Talkie.StarredDeepgramLanguages"
     static let historyLimitKey = "Talkie.HistoryLimit"
     static let shortcutsKey = "Talkie.Shortcuts"
@@ -19,6 +22,7 @@ final class SettingsStore: ObservableObject {
     static let restoreClipboardAfterPasteKey = "Talkie.RestoreClipboardAfterPaste"
     static let showSelectedLanguageInMenuBarKey = "Talkie.ShowSelectedLanguageInMenuBar"
     static let showLanguageInRecorderWidgetKey = "Talkie.ShowLanguageInRecorderWidget"
+    static let showLiveTranscriptInRecorderWidgetKey = "Talkie.ShowLiveTranscriptInRecorderWidget"
     static let overlayPositionKey = "Talkie.OverlayPosition"
     static let audioInputSelectionKey = "Talkie.AudioInputSelection"
     static let appTranscriptionLanguageOverridesKey = "Talkie.AppTranscriptionLanguageOverrides"
@@ -28,6 +32,18 @@ final class SettingsStore: ObservableObject {
     @Published var apiKey: String {
         didSet {
             defaults.set(apiKey, forKey: Self.apiKeyKey)
+        }
+    }
+
+    @Published var transcriptionProvider: TranscriptionProvider {
+        didSet {
+            defaults.set(transcriptionProvider.rawValue, forKey: Self.transcriptionProviderKey)
+        }
+    }
+
+    @Published var elevenLabsApiKey: String {
+        didSet {
+            defaults.set(elevenLabsApiKey, forKey: Self.elevenLabsApiKeyKey)
         }
     }
 
@@ -107,6 +123,12 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var showLiveTranscriptInRecorderWidget: Bool {
+        didSet {
+            defaults.set(showLiveTranscriptInRecorderWidget, forKey: Self.showLiveTranscriptInRecorderWidgetKey)
+        }
+    }
+
     @Published var overlayPosition: OverlayPosition {
         didSet {
             defaults.set(overlayPosition.rawValue, forKey: Self.overlayPositionKey)
@@ -122,6 +144,20 @@ final class SettingsStore: ObservableObject {
     @Published var deepgramLanguage: DeepgramLanguage {
         didSet {
             defaults.set(deepgramLanguage.rawValue, forKey: Self.deepgramLanguageKey)
+        }
+    }
+
+    @Published var automaticLanguageCandidates: [DeepgramLanguage] {
+        didSet {
+            let normalized = TranscriptionProvider.elevenLabs.normalizedAutomaticLanguageCandidates(
+                automaticLanguageCandidates
+            )
+            if normalized != automaticLanguageCandidates {
+                automaticLanguageCandidates = normalized
+                return
+            }
+
+            defaults.set(normalized.map(\.rawValue), forKey: Self.automaticLanguageCandidatesKey)
         }
     }
 
@@ -172,6 +208,20 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var transcriptionProviderSettings: TranscriptionProviderSettings {
+        let apiKey = switch transcriptionProvider {
+        case .deepgram:
+            apiKey
+        case .elevenLabs:
+            elevenLabsApiKey
+        }
+        return TranscriptionProviderSettings(
+            provider: transcriptionProvider,
+            apiKey: apiKey.trimmed,
+            automaticLanguageCandidates: automaticLanguageCandidates
+        )
+    }
+
     var hasEnhancementCredentials: Bool {
         enhancementProviderSettings.missingCredential == nil
     }
@@ -180,12 +230,16 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
 
         apiKey = defaults.string(forKey: Self.apiKeyKey) ?? ""
+        transcriptionProvider = defaults.string(forKey: Self.transcriptionProviderKey)
+            .flatMap(TranscriptionProvider.init(rawValue:)) ?? .deepgram
+        elevenLabsApiKey = defaults.string(forKey: Self.elevenLabsApiKeyKey) ?? ""
         escToCancelRecording = (defaults.object(forKey: Self.escToCancelRecordingKey) as? Bool) ?? true
         playSoundEffects = (defaults.object(forKey: Self.playSoundEffectsKey) as? Bool) ?? false
         muteMediaDuringRecording = (defaults.object(forKey: Self.muteMediaDuringRecordingKey) as? Bool) ?? false
         restoreClipboardAfterPaste = (defaults.object(forKey: Self.restoreClipboardAfterPasteKey) as? Bool) ?? false
         showSelectedLanguageInMenuBar = (defaults.object(forKey: Self.showSelectedLanguageInMenuBarKey) as? Bool) ?? false
         showLanguageInRecorderWidget = (defaults.object(forKey: Self.showLanguageInRecorderWidgetKey) as? Bool) ?? true
+        showLiveTranscriptInRecorderWidget = (defaults.object(forKey: Self.showLiveTranscriptInRecorderWidgetKey) as? Bool) ?? true
 
         let savedPosition = defaults.string(forKey: Self.overlayPositionKey)
         overlayPosition = savedPosition.flatMap(OverlayPosition.init(rawValue:)) ?? .top
@@ -196,6 +250,12 @@ final class SettingsStore: ObservableObject {
 
         let savedLanguage = defaults.string(forKey: Self.deepgramLanguageKey)
         deepgramLanguage = savedLanguage.flatMap(DeepgramLanguage.init(rawValue:)) ?? .automatic
+        let savedAutomaticLanguageCandidates = defaults.stringArray(forKey: Self.automaticLanguageCandidatesKey)?
+            .compactMap(DeepgramLanguage.init(rawValue:))
+        automaticLanguageCandidates = TranscriptionProvider.elevenLabs.normalizedAutomaticLanguageCandidates(
+            savedAutomaticLanguageCandidates
+                ?? TranscriptionProvider.elevenLabs.defaultAutomaticLanguageCandidates
+        )
         starredDeepgramLanguages = DeepgramLanguage.starredLanguages(
             from: defaults.stringArray(forKey: Self.starredDeepgramLanguagesKey)
         )

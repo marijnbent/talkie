@@ -7,7 +7,7 @@ final class RecordingRuntimeTests: XCTestCase {
     private struct RuntimeHarness {
         let runtime: RecordingRuntime
         let audio: FakeAudioCapturePort
-        let deepgram: FakeDeepgramPort
+        let deepgram: FakeTranscriptionStreamPort
         let scheduler: ManualScheduler
         let statuses: Box<[AppStatus]>
         let finalizations: Box<[RecordingFinalization]>
@@ -224,7 +224,23 @@ final class RecordingRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.finalizations.value.first?.transcriptionLanguage, .french)
     }
 
-    func testRoutesOneConvertedChunkToRawCaptureAndDeepgram() async {
+    func testUsesSelectedTranscriptionProviderSettings() async {
+        let harness = makeHarness(
+            transcriptionSettingsProvider: {
+                TranscriptionProviderSettings(provider: .elevenLabs, apiKey: "eleven-key")
+            }
+        )
+
+        harness.runtime.handle(
+            action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false)
+        )
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+
+        XCTAssertEqual(harness.deepgram.connectCalls.first?.provider, .elevenLabs)
+        XCTAssertEqual(harness.deepgram.connectCalls.first?.apiKey, "eleven-key")
+    }
+
+    func testRoutesOneConvertedChunkToRawCaptureAndTranscriptionStream() async {
         let harness = makeHarness()
         harness.runtime.handle(
             action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false)
@@ -261,12 +277,15 @@ final class RecordingRuntimeTests: XCTestCase {
     private func makeHarness(
         activeApplicationProvider: @escaping () -> ActiveApplicationContext? = { nil },
         resolvedTranscriptionLanguageProvider: @escaping (String?) -> DeepgramLanguage = { _ in .automatic },
+        transcriptionSettingsProvider: @escaping () -> TranscriptionProviderSettings = {
+            TranscriptionProviderSettings(provider: .deepgram, apiKey: "dg_key")
+        },
         resolvedEnhancementPromptProvider: @escaping (UUID?, String?) -> EnhancementPromptContext? = { _, _ in nil }
     ) -> RuntimeHarness {
         let clock = ManualClock()
         let scheduler = ManualScheduler(clock: clock)
         let audio = FakeAudioCapturePort()
-        let deepgram = FakeDeepgramPort()
+        let deepgram = FakeTranscriptionStreamPort()
         let sound = FakeSoundPort()
         let rawRecordingCapture = FakeRawRecordingCapture()
 
@@ -275,7 +294,7 @@ final class RecordingRuntimeTests: XCTestCase {
 
         let runtime = RecordingRuntime(
             audioCapture: audio,
-            deepgram: deepgram,
+            transcriptionStream: deepgram,
             scheduler: scheduler,
             clock: clock,
             activeApplicationProvider: activeApplicationProvider,
@@ -287,7 +306,7 @@ final class RecordingRuntimeTests: XCTestCase {
                 )
             },
             resolvedTranscriptionLanguageProvider: resolvedTranscriptionLanguageProvider,
-            apiKeyProvider: { "dg_key" },
+            transcriptionSettingsProvider: transcriptionSettingsProvider,
             resolvedEnhancementPromptProvider: resolvedEnhancementPromptProvider,
             playSoundEffectsEnabledProvider: { false },
             muteDuringRecordingProvider: { false },

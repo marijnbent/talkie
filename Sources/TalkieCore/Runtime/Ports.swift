@@ -23,13 +23,17 @@ protocol AudioCapturePort: AnyObject, Sendable {
     func stop(sessionID: UUID) async
 }
 
-protocol DeepgramPort: AnyObject {
+protocol TranscriptionStreamPort: AnyObject {
     var onTranscriptEvent: ((String, Bool) -> Void)? { get set }
     var onLog: ((String, LogLevel) -> Void)? { get set }
     var onTranscriptionError: ((String) -> Void)? { get set }
     var onConnectionDropped: ((String) -> Void)? { get set }
 
-    func connect(apiKey: String, format: AudioStreamFormat, language: DeepgramLanguage)
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    )
     func sendAudio(data: Data)
     func closeStream(onClosed: @escaping () -> Void)
     func disconnect()

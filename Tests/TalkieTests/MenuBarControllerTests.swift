@@ -38,6 +38,16 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertFalse(items.contains(where: { $0.isSelected }))
     }
 
+    func testLanguageSubmenuFiltersStarredLanguagesForProvider() {
+        let items = MenuBarLanguageModel.submenuItems(
+            currentLanguage: .english,
+            starredLanguages: [.automatic, .englishBritish, .cantonese, .english],
+            availableLanguages: TranscriptionProvider.elevenLabs.languageOptions
+        )
+
+        XCTAssertEqual(items.map(\.language), [.automatic, .cantonese, .english])
+    }
+
     func testStatusItemTitleIsEmptyWhenLanguageDisplayIsDisabled() {
         XCTAssertEqual(
             MenuBarLanguageModel.statusItemTitle(for: .english, showsSelectedLanguage: false),
@@ -53,6 +63,13 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(
             MenuBarLanguageModel.statusItemTitle(for: .englishBritish, showsSelectedLanguage: true),
             "EN"
+        )
+    }
+
+    func testStatusItemTitleIsEmptyForAutomaticLanguage() {
+        XCTAssertEqual(
+            MenuBarLanguageModel.statusItemTitle(for: .automatic, showsSelectedLanguage: true),
+            ""
         )
     }
 }

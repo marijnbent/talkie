@@ -39,7 +39,7 @@ enum AppStatus: Equatable {
         case .microphonePermissionRequired:
             return "Grant microphone access to start recording."
         case .missingAPIKey:
-            return "Add a Deepgram API key in Settings."
+            return "Add a speech-to-text API key in Settings."
         case .transcriptionIssueDetected:
             return "Transcription issue detected."
         case .connectionRecovering:

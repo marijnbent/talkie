@@ -22,6 +22,32 @@ final class GeneralSettingsViewModel: ObservableObject {
         AudioInputCatalog.resolvedSelection(settingsStore.audioInputSelection)
     }
     var deepgramLanguage: DeepgramLanguage { settingsStore.deepgramLanguage }
+    var transcriptionProvider: TranscriptionProvider { settingsStore.transcriptionProvider }
+    var selectedLanguage: DeepgramLanguage {
+        settingsStore.transcriptionProvider.normalizedLanguage(settingsStore.deepgramLanguage)
+    }
+    var availableLanguages: [DeepgramLanguage] {
+        settingsStore.transcriptionProvider.languageOptions
+    }
+    var supportsAutomaticLanguageCandidates: Bool {
+        settingsStore.transcriptionProvider.supportsAutomaticLanguageCandidates
+    }
+    var automaticLanguageCandidateOptions: [DeepgramLanguage] {
+        settingsStore.transcriptionProvider.automaticLanguageCandidateOptions
+    }
+    var automaticLanguageCandidates: [DeepgramLanguage] {
+        settingsStore.automaticLanguageCandidates
+    }
+    var automaticLanguageCandidatesSummary: String {
+        let names = automaticLanguageCandidates.map(\.displayName)
+        if names.count <= 3 {
+            return names.joined(separator: ", ")
+        }
+        return "\(names.count) languages"
+    }
+    var transcriptionLanguageHelpText: String {
+        settingsStore.transcriptionProvider.automaticLanguageHelpText
+    }
     var starredDeepgramLanguages: [DeepgramLanguage] { settingsStore.starredDeepgramLanguages }
     var appTranscriptionLanguageOverrides: [AppTranscriptionLanguageOverride] {
         settingsStore.appTranscriptionLanguageOverrides
@@ -53,6 +79,37 @@ final class GeneralSettingsViewModel: ObservableObject {
         )
     }
 
+    func languageBinding() -> Binding<DeepgramLanguage> {
+        Binding(
+            get: { self.selectedLanguage },
+            set: { self.settingsStore.deepgramLanguage = $0 }
+        )
+    }
+
+    func isAutomaticLanguageCandidate(_ language: DeepgramLanguage) -> Bool {
+        automaticLanguageCandidates.contains(language)
+    }
+
+    func canRemoveAutomaticLanguageCandidate(_ language: DeepgramLanguage) -> Bool {
+        isAutomaticLanguageCandidate(language) && automaticLanguageCandidates.count > 2
+    }
+
+    func toggleAutomaticLanguageCandidate(_ language: DeepgramLanguage) {
+        guard supportsAutomaticLanguageCandidates,
+              automaticLanguageCandidateOptions.contains(language) else { return }
+
+        var candidates = automaticLanguageCandidates
+        if let index = candidates.firstIndex(of: language) {
+            guard canRemoveAutomaticLanguageCandidate(language) else { return }
+            candidates.remove(at: index)
+        } else {
+            candidates.append(language)
+        }
+
+        settingsStore.automaticLanguageCandidates = settingsStore.transcriptionProvider
+            .normalizedAutomaticLanguageCandidates(candidates)
+    }
+
     func bindingForAppTranscriptionLanguageOverrideID(
         _ overrideID: UUID
     ) -> Binding<AppTranscriptionLanguageOverride>? {
@@ -61,25 +118,35 @@ final class GeneralSettingsViewModel: ObservableObject {
         }
 
         return Binding(
-            get: { self.settingsStore.appTranscriptionLanguageOverrides[index] },
-            set: { self.settingsStore.appTranscriptionLanguageOverrides[index] = $0 }
+            get: {
+                var override = self.settingsStore.appTranscriptionLanguageOverrides[index]
+                override.language = self.settingsStore.transcriptionProvider.normalizedLanguage(override.language)
+                return override
+            },
+            set: {
+                var normalized = $0
+                normalized.language = self.settingsStore.transcriptionProvider.normalizedLanguage(normalized.language)
+                self.settingsStore.appTranscriptionLanguageOverrides[index] = normalized
+            }
         )
     }
 
     func menuBarLanguages(matching query: String) -> [DeepgramLanguage] {
         DeepgramLanguage.sortedForSettings(
-            DeepgramLanguage.allCases.filter { $0.matchesSearch(query) },
-            starred: Set(settingsStore.starredDeepgramLanguages)
+            availableLanguages.filter { $0.matchesSearch(query) },
+            starred: Set(settingsStore.starredDeepgramLanguages.filter(availableLanguages.contains))
         )
     }
 
     func appOverrideLanguages(for currentLanguage: DeepgramLanguage) -> [DeepgramLanguage] {
         let starredLanguages = settingsStore.starredDeepgramLanguages
-        let languages = starredLanguages.contains(currentLanguage)
-            ? starredLanguages
-            : starredLanguages + [currentLanguage]
+        let normalizedCurrentLanguage = settingsStore.transcriptionProvider.normalizedLanguage(currentLanguage)
+        let availableStarredLanguages = starredLanguages.filter(availableLanguages.contains)
+        let languages = availableStarredLanguages.contains(normalizedCurrentLanguage)
+            ? availableStarredLanguages
+            : availableStarredLanguages + [normalizedCurrentLanguage]
         return DeepgramLanguage.sortedForMenuBar(
-            DeepgramLanguage.normalizedStarredLanguages(languages, fallback: [currentLanguage])
+            DeepgramLanguage.normalizedStarredLanguages(languages, fallback: [normalizedCurrentLanguage])
         )
     }
 
@@ -325,7 +392,11 @@ final class HistoryViewModel: ObservableObject {
         _ prompt: String,
         _ settings: EnhancementProviderSettings
     ) async throws -> String
-    typealias Transcriber = @Sendable (_ fileURL: URL, _ apiKey: String, _ language: DeepgramLanguage) async throws -> String
+    typealias Transcriber = @Sendable (
+        _ fileURL: URL,
+        _ settings: TranscriptionProviderSettings,
+        _ language: DeepgramLanguage
+    ) async throws -> String
 
     private let settingsStore: SettingsStore
     private let sessionState: SessionState
@@ -341,7 +412,7 @@ final class HistoryViewModel: ObservableObject {
         settingsStore: SettingsStore,
         sessionState: SessionState,
         enhancer: @escaping Enhancer = EnhancementClient.enhance,
-        transcriber: @escaping Transcriber = DeepgramPrerecordedClient.transcribe
+        transcriber: @escaping Transcriber = PrerecordedTranscriptionClient.transcribe
     ) {
         self.settingsStore = settingsStore
         self.sessionState = sessionState
@@ -353,6 +424,11 @@ final class HistoryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         settingsStore.$starredDeepgramLanguages
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        settingsStore.$transcriptionProvider
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -373,9 +449,12 @@ final class HistoryViewModel: ObservableObject {
     }
 
     var retryTranscriptionLanguages: [DeepgramLanguage] {
-        DeepgramLanguage.sortedForMenuBar(
+        let provider = settingsStore.transcriptionProvider
+        let availableLanguages = provider.languageOptions
+        return DeepgramLanguage.sortedForMenuBar(
             DeepgramLanguage.normalizedStarredLanguages(
-                [.automatic] + settingsStore.starredDeepgramLanguages
+                ([.automatic] + settingsStore.starredDeepgramLanguages).filter(availableLanguages.contains),
+                fallback: [availableLanguages.first ?? .automatic]
             )
         )
     }
@@ -447,20 +526,21 @@ final class HistoryViewModel: ObservableObject {
         guard beginRetry(for: entry.id, status: .finalizing) else { return }
 
         retryingEntryIDs.insert(entry.id)
+        let transcriptionSettings = settingsStore.transcriptionProviderSettings
         sessionState.addLog(
-            "Retrying transcription from saved recording (language: \(language.displayName)).",
+            "Retrying transcription with \(transcriptionSettings.provider.displayName) " +
+                "from saved recording (language: \(language.displayName)).",
             level: .info
         )
 
         Task { [weak self] in
             guard let self else { return }
 
-            let deepgramAPIKey = self.settingsStore.apiKey.trimmed
-            guard !deepgramAPIKey.isEmpty else {
+            guard !transcriptionSettings.apiKey.isEmpty else {
                 await MainActor.run {
                     self.finishRetry(
                         for: entry.id,
-                        error: "Deepgram API key is not set.",
+                        error: "\(transcriptionSettings.provider.displayName) API key is not set.",
                         logLevel: .warning
                     )
                 }
@@ -475,10 +555,17 @@ final class HistoryViewModel: ObservableObject {
             }
 
             do {
-                let transcript = try await self.transcriber(fileURL, deepgramAPIKey, language).trimmed
+                let transcript = try await self.transcriber(
+                    fileURL,
+                    transcriptionSettings,
+                    language
+                ).trimmed
                 if transcript.isEmpty {
                     await MainActor.run {
-                        self.finishRetry(for: entry.id, error: "Deepgram returned no transcript.")
+                        self.finishRetry(
+                            for: entry.id,
+                            error: "\(transcriptionSettings.provider.displayName) returned no transcript."
+                        )
                     }
                     return
                 }

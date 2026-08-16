@@ -5,6 +5,7 @@ struct GeneralSettingsView: View {
     @State private var languageSearchText = ""
     @StateObject private var pickerModel = RunningAppPickerModel()
     @State private var isPresentingAppLanguageOverridePicker = false
+    @State private var isPresentingAutomaticLanguagePicker = false
 
     var body: some View {
         Form {
@@ -68,20 +69,50 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                SecureField("API Key", text: viewModel.binding(for: \.apiKey))
-                Picker("Current language", selection: viewModel.binding(for: \.deepgramLanguage)) {
-                    ForEach(DeepgramLanguage.allCases) { language in
+                Picker("Provider", selection: viewModel.binding(for: \.transcriptionProvider)) {
+                    ForEach(TranscriptionProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                switch viewModel.transcriptionProvider {
+                case .deepgram:
+                    SecureField("Deepgram API Key", text: viewModel.binding(for: \.apiKey))
+                case .elevenLabs:
+                    SecureField("ElevenLabs API Key", text: viewModel.binding(for: \.elevenLabsApiKey))
+                }
+
+                Picker("Current language", selection: viewModel.languageBinding()) {
+                    ForEach(viewModel.availableLanguages) { language in
                         Text(language.displayName).tag(language)
                     }
                 }
+
+                if viewModel.supportsAutomaticLanguageCandidates {
+                    LabeledContent("Automatic languages") {
+                        HStack(spacing: 10) {
+                            Text(viewModel.automaticLanguageCandidatesSummary)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+
+                            Button("Edit…") {
+                                isPresentingAutomaticLanguagePicker = true
+                            }
+                        }
+                    }
+                }
             } header: {
-                Text("Deepgram")
+                Text("Speech to text")
             } footer: {
-                Text("Automatic detects the spoken language.")
+                Text(viewModel.transcriptionLanguageHelpText)
             }
 
             Section {
                 Toggle("Show selected language in menu bar", isOn: viewModel.binding(for: \.showSelectedLanguageInMenuBar))
+                Text("When Automatic is selected, no language text is shown.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Show language button in recorder widget", isOn: viewModel.binding(for: \.showLanguageInRecorderWidget))
 
                 TextField("Search languages", text: $languageSearchText)
@@ -96,7 +127,7 @@ struct GeneralSettingsView: View {
                             ForEach(viewModel.menuBarLanguages(matching: languageSearchText)) { language in
                                 MenuBarLanguageSettingsRow(
                                     language: language,
-                                    isCurrent: viewModel.deepgramLanguage == language,
+                                    isCurrent: viewModel.selectedLanguage == language,
                                     isStarred: viewModel.isLanguageStarred(language),
                                     canToggleStarRemoval: viewModel.canToggleStarRemoval(for: language),
                                     onToggleStar: { viewModel.toggleStar(for: language) }
@@ -121,6 +152,7 @@ struct GeneralSettingsView: View {
                 Toggle("Play sound effects", isOn: viewModel.binding(for: \.playSoundEffects))
                 Toggle("Mute during recording", isOn: viewModel.binding(for: \.muteMediaDuringRecording))
                 Toggle("Restore clipboard after confirmed auto-paste", isOn: viewModel.binding(for: \.restoreClipboardAfterPaste))
+                Toggle("Show live transcript in recorder widget", isOn: viewModel.binding(for: \.showLiveTranscriptInRecorderWidget))
                 Picker("Widget position", selection: viewModel.binding(for: \.overlayPosition)) {
                     ForEach(OverlayPosition.allCases) { position in
                         Text(position.displayName).tag(position)
@@ -144,6 +176,9 @@ struct GeneralSettingsView: View {
                     appDisplayName: app.displayName
                 )
             }
+        }
+        .sheet(isPresented: $isPresentingAutomaticLanguagePicker) {
+            AutomaticLanguagePickerSheet(viewModel: viewModel)
         }
         .onAppear {
             viewModel.refreshPermissions()
@@ -176,8 +211,73 @@ struct GeneralSettingsView: View {
         } header: {
             Text("App language overrides")
         } footer: {
-            Text("Apps without an override use Talkie default: \(viewModel.deepgramLanguage.displayName).")
+            Text("Apps without an override use Talkie default: \(viewModel.selectedLanguage.displayName).")
         }
+    }
+}
+
+private struct AutomaticLanguagePickerSheet: View {
+    @ObservedObject var viewModel: GeneralSettingsViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredLanguages: [DeepgramLanguage] {
+        viewModel.automaticLanguageCandidateOptions.filter { $0.matchesSearch(searchText) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Automatic languages")
+                    .font(.title3.weight(.semibold))
+                Text("Select at least two languages. Automatic detection will ignore other languages.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField("Search languages", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+
+            if filteredLanguages.isEmpty {
+                Text("No languages found")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(filteredLanguages) { language in
+                    let isSelected = viewModel.isAutomaticLanguageCandidate(language)
+                    Button {
+                        viewModel.toggleAutomaticLanguageCandidate(language)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(language.displayName)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSelected && !viewModel.canRemoveAutomaticLanguageCandidate(language))
+                }
+                .listStyle(.inset)
+            }
+
+            HStack {
+                Text("\(viewModel.automaticLanguageCandidates.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 500, height: 580)
     }
 }
 

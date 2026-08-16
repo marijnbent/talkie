@@ -57,7 +57,7 @@ final class AudioCaptureControllerAdapter: AudioCapturePort, @unchecked Sendable
     }
 }
 
-final class DeepgramClientAdapter: DeepgramPort, @unchecked Sendable {
+final class DeepgramClientAdapter: TranscriptionStreamPort, @unchecked Sendable {
     var onTranscriptEvent: ((String, Bool) -> Void)?
     var onLog: ((String, LogLevel) -> Void)?
     var onTranscriptionError: ((String) -> Void)?
@@ -80,8 +80,12 @@ final class DeepgramClientAdapter: DeepgramPort, @unchecked Sendable {
         )
     }()
 
-    func connect(apiKey: String, format: AudioStreamFormat, language: DeepgramLanguage) {
-        client.connect(apiKey: apiKey, format: format, language: language)
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    ) {
+        client.connect(apiKey: settings.apiKey, format: format, language: language)
     }
 
     func sendAudio(data: Data) {
@@ -94,6 +98,150 @@ final class DeepgramClientAdapter: DeepgramPort, @unchecked Sendable {
 
     func disconnect() {
         client.disconnect()
+    }
+}
+
+final class ElevenLabsClientAdapter: TranscriptionStreamPort, @unchecked Sendable {
+    var onTranscriptEvent: ((String, Bool) -> Void)?
+    var onLog: ((String, LogLevel) -> Void)?
+    var onTranscriptionError: ((String) -> Void)?
+    var onConnectionDropped: ((String) -> Void)?
+
+    private lazy var client: ElevenLabsClient = {
+        ElevenLabsClient(
+            onTranscriptEvent: { [weak self] text, isFinal in
+                self?.onTranscriptEvent?(text, isFinal)
+            },
+            onLog: { [weak self] message, level in
+                self?.onLog?(message, level)
+            },
+            onTranscriptionError: { [weak self] message in
+                self?.onTranscriptionError?(message)
+            },
+            onConnectionDropped: { [weak self] reason in
+                self?.onConnectionDropped?(reason)
+            }
+        )
+    }()
+
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    ) {
+        client.connect(
+            apiKey: settings.apiKey,
+            format: format,
+            language: language,
+            automaticLanguageCandidates: settings.automaticLanguageCandidates
+        )
+    }
+
+    func sendAudio(data: Data) {
+        client.sendAudio(data: data)
+    }
+
+    func closeStream(onClosed: @escaping () -> Void) {
+        client.closeStream(onClosed: onClosed)
+    }
+
+    func disconnect() {
+        client.disconnect()
+    }
+}
+
+/// Keeps one provider active for the full recording session and forwards its events.
+final class TranscriptionStreamRouter: TranscriptionStreamPort, @unchecked Sendable {
+    var onTranscriptEvent: ((String, Bool) -> Void)?
+    var onLog: ((String, LogLevel) -> Void)?
+    var onTranscriptionError: ((String) -> Void)?
+    var onConnectionDropped: ((String) -> Void)?
+
+    private let deepgram: TranscriptionStreamPort
+    private let elevenLabs: TranscriptionStreamPort
+    private let lock = NSLock()
+    private var activeProvider: TranscriptionProvider?
+    private var activeStream: TranscriptionStreamPort?
+
+    init(
+        deepgram: TranscriptionStreamPort = DeepgramClientAdapter(),
+        elevenLabs: TranscriptionStreamPort = ElevenLabsClientAdapter()
+    ) {
+        self.deepgram = deepgram
+        self.elevenLabs = elevenLabs
+        wire(deepgram, provider: .deepgram)
+        wire(elevenLabs, provider: .elevenLabs)
+    }
+
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    ) {
+        let stream = stream(for: settings.provider)
+        let previousStream = lock.withLock { () -> TranscriptionStreamPort? in
+            let previous = activeProvider == settings.provider ? nil : activeStream
+            activeProvider = settings.provider
+            activeStream = stream
+            return previous
+        }
+        previousStream?.disconnect()
+        stream.connect(settings: settings, format: format, language: language)
+    }
+
+    func sendAudio(data: Data) {
+        lock.withLock { activeStream }?.sendAudio(data: data)
+    }
+
+    func closeStream(onClosed: @escaping () -> Void) {
+        guard let stream = lock.withLock({ activeStream }) else {
+            onClosed()
+            return
+        }
+        stream.closeStream(onClosed: onClosed)
+    }
+
+    func disconnect() {
+        let stream = lock.withLock { () -> TranscriptionStreamPort? in
+            defer {
+                activeProvider = nil
+                activeStream = nil
+            }
+            return activeStream
+        }
+        stream?.disconnect()
+    }
+
+    private func stream(for provider: TranscriptionProvider) -> TranscriptionStreamPort {
+        switch provider {
+        case .deepgram:
+            return deepgram
+        case .elevenLabs:
+            return elevenLabs
+        }
+    }
+
+    private func wire(_ stream: TranscriptionStreamPort, provider: TranscriptionProvider) {
+        stream.onTranscriptEvent = { [weak self] text, isFinal in
+            guard self?.isActive(provider) == true else { return }
+            self?.onTranscriptEvent?(text, isFinal)
+        }
+        stream.onLog = { [weak self] message, level in
+            guard self?.isActive(provider) == true else { return }
+            self?.onLog?(message, level)
+        }
+        stream.onTranscriptionError = { [weak self] message in
+            guard self?.isActive(provider) == true else { return }
+            self?.onTranscriptionError?(message)
+        }
+        stream.onConnectionDropped = { [weak self] reason in
+            guard self?.isActive(provider) == true else { return }
+            self?.onConnectionDropped?(reason)
+        }
+    }
+
+    private func isActive(_ provider: TranscriptionProvider) -> Bool {
+        lock.withLock { activeProvider == provider }
     }
 }
 

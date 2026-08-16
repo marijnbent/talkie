@@ -1,6 +1,6 @@
 import Foundation
 
-enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
+enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     case automatic
     case arabic = "ar"
     case arabicUnitedArabEmirates = "ar-AE"
@@ -19,11 +19,27 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
     case arabicTunisia = "ar-TN"
     case arabicIraq = "ar-IQ"
     case arabicIran = "ar-IR"
+    case armenian = "hy"
+    case assamese = "asm"
+    case asturian = "ast"
+    case afrikaans = "afr"
+    case amharic = "amh"
+    case azerbaijani = "aze"
     case belarusian = "be"
     case bengali = "bn"
     case bosnian = "bs"
     case bulgarian = "bg"
+    case burmese = "mya"
     case catalan = "ca"
+    case cantonese = "yue"
+    case cebuano = "ceb"
+    case chichewa = "nya"
+    case chineseCantonese = "zh-HK"
+    case chineseMandarinSimplified = "zh"
+    case chineseMandarinSimplifiedChina = "zh-CN"
+    case chineseMandarinSimplifiedHans = "zh-Hans"
+    case chineseMandarinTraditional = "zh-TW"
+    case chineseMandarinTraditionalHant = "zh-Hant"
     case croatian = "hr"
     case czech = "cs"
     case danish = "da"
@@ -36,49 +52,96 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
     case englishIndian = "en-IN"
     case englishNewZealand = "en-NZ"
     case estonian = "et"
+    case filipino = "fil"
     case finnish = "fi"
     case flemish = "nl-BE"
     case french = "fr"
     case frenchCanadian = "fr-CA"
+    case fulah = "ful"
+    case galician = "glg"
+    case ganda = "lug"
+    case georgian = "kat"
     case german = "de"
     case germanSwiss = "de-CH"
     case greek = "el"
+    case gujarati = "gu"
+    case gujaratiIndia = "gu-IN"
+    case hausa = "hau"
     case hebrew = "he"
     case hindi = "hi"
     case hungarian = "hu"
+    case icelandic = "isl"
+    case igbo = "ibo"
     case indonesian = "id"
+    case irish = "gle"
     case italian = "it"
     case japanese = "ja"
+    case javanese = "jav"
+    case kabuverdianu = "kea"
     case kannada = "kn"
+    case kazakh = "kaz"
+    case khmer = "khm"
     case korean = "ko"
     case koreanSouthKorea = "ko-KR"
+    case kurdish = "kur"
+    case kyrgyz = "kir"
+    case lao = "lao"
     case latvian = "lv"
     case lithuanian = "lt"
+    case lingala = "lin"
+    case luo = "luo"
+    case luxembourgish = "ltz"
     case macedonian = "mk"
     case malay = "ms"
+    case malayalam = "mal"
     case marathi = "mr"
+    case maltese = "mlt"
+    case mandarinChinese = "zho"
+    case maori = "mri"
     case norwegian = "no"
+    case mongolian = "mon"
+    case nepali = "ne"
+    case northernSotho = "nso"
     case persian = "fa"
     case polish = "pl"
     case portuguese = "pt"
     case portugueseBrazilian = "pt-BR"
     case portuguesePortugal = "pt-PT"
+    case occitan = "oci"
+    case odia = "ori"
+    case pashto = "pus"
+    case punjabi = "pa"
+    case punjabiIndia = "pa-IN"
     case romanian = "ro"
     case russian = "ru"
     case serbian = "sr"
+    case shona = "sna"
+    case sindhi = "snd"
     case slovak = "sk"
     case slovenian = "sl"
+    case somali = "som"
     case spanish = "es"
     case spanishLatinAmerica = "es-419"
     case swedish = "sv"
     case swedishSweden = "sv-SE"
+    case swahili = "swa"
     case tagalog = "tl"
     case tamil = "ta"
     case telugu = "te"
+    case tajik = "tgk"
+    case thai = "th"
+    case thaiThailand = "th-TH"
     case turkish = "tr"
     case ukrainian = "uk"
     case urdu = "ur"
+    case umbundu = "umb"
+    case uzbek = "uzb"
     case vietnamese = "vi"
+    case welsh = "cym"
+    case wolof = "wol"
+    case xhosa = "xho"
+    case yoruba = "yor"
+    case zulu = "zul"
 
     static let defaultStarredLanguages: [DeepgramLanguage] = [.automatic, .english]
 
@@ -147,6 +210,18 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "Arabic (Iraq)"
         case .arabicIran:
             return "Arabic (Iran)"
+        case .armenian:
+            return "Armenian"
+        case .assamese:
+            return "Assamese"
+        case .asturian:
+            return "Asturian"
+        case .afrikaans:
+            return "Afrikaans"
+        case .amharic:
+            return "Amharic"
+        case .azerbaijani:
+            return "Azerbaijani"
         case .belarusian:
             return "Belarusian"
         case .bengali:
@@ -155,8 +230,28 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "Bosnian"
         case .bulgarian:
             return "Bulgarian"
+        case .burmese:
+            return "Burmese"
         case .catalan:
             return "Catalan"
+        case .cantonese:
+            return "Cantonese"
+        case .cebuano:
+            return "Cebuano"
+        case .chichewa:
+            return "Chichewa"
+        case .chineseCantonese:
+            return "Chinese (Cantonese)"
+        case .chineseMandarinSimplified:
+            return "Chinese (Mandarin, Simplified)"
+        case .chineseMandarinSimplifiedChina:
+            return "Chinese (Mandarin, Simplified, China)"
+        case .chineseMandarinSimplifiedHans:
+            return "Chinese (Mandarin, Simplified script)"
+        case .chineseMandarinTraditional:
+            return "Chinese (Mandarin, Traditional)"
+        case .chineseMandarinTraditionalHant:
+            return "Chinese (Mandarin, Traditional script)"
         case .croatian:
             return "Croatian"
         case .czech:
@@ -181,6 +276,8 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "English (New Zealand)"
         case .estonian:
             return "Estonian"
+        case .filipino:
+            return "Filipino"
         case .finnish:
             return "Finnish"
         case .flemish:
@@ -189,42 +286,96 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "French"
         case .frenchCanadian:
             return "French (Canada)"
+        case .fulah:
+            return "Fulah"
+        case .galician:
+            return "Galician"
+        case .ganda:
+            return "Ganda"
+        case .georgian:
+            return "Georgian"
         case .german:
             return "German"
         case .germanSwiss:
             return "German (Switzerland)"
         case .greek:
             return "Greek"
+        case .gujarati:
+            return "Gujarati"
+        case .gujaratiIndia:
+            return "Gujarati (India)"
+        case .hausa:
+            return "Hausa"
         case .hebrew:
             return "Hebrew"
         case .hindi:
             return "Hindi"
         case .hungarian:
             return "Hungarian"
+        case .icelandic:
+            return "Icelandic"
+        case .igbo:
+            return "Igbo"
         case .indonesian:
             return "Indonesian"
+        case .irish:
+            return "Irish"
         case .italian:
             return "Italian"
         case .japanese:
             return "Japanese"
+        case .javanese:
+            return "Javanese"
+        case .kabuverdianu:
+            return "Kabuverdianu"
         case .kannada:
             return "Kannada"
+        case .kazakh:
+            return "Kazakh"
+        case .khmer:
+            return "Khmer"
         case .korean:
             return "Korean"
         case .koreanSouthKorea:
             return "Korean (South Korea)"
+        case .kurdish:
+            return "Kurdish"
+        case .kyrgyz:
+            return "Kyrgyz"
+        case .lao:
+            return "Lao"
         case .latvian:
             return "Latvian"
         case .lithuanian:
             return "Lithuanian"
+        case .lingala:
+            return "Lingala"
+        case .luo:
+            return "Luo"
+        case .luxembourgish:
+            return "Luxembourgish"
         case .macedonian:
             return "Macedonian"
         case .malay:
             return "Malay"
+        case .malayalam:
+            return "Malayalam"
         case .marathi:
             return "Marathi"
+        case .maltese:
+            return "Maltese"
+        case .mandarinChinese:
+            return "Mandarin Chinese"
+        case .maori:
+            return "Māori"
         case .norwegian:
             return "Norwegian"
+        case .mongolian:
+            return "Mongolian"
+        case .nepali:
+            return "Nepali"
+        case .northernSotho:
+            return "Northern Sotho"
         case .persian:
             return "Persian"
         case .polish:
@@ -235,16 +386,32 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "Portuguese (Brazil)"
         case .portuguesePortugal:
             return "Portuguese (Portugal)"
+        case .occitan:
+            return "Occitan"
+        case .odia:
+            return "Odia"
+        case .pashto:
+            return "Pashto"
+        case .punjabi:
+            return "Punjabi"
+        case .punjabiIndia:
+            return "Punjabi (India)"
         case .romanian:
             return "Romanian"
         case .russian:
             return "Russian"
         case .serbian:
             return "Serbian"
+        case .shona:
+            return "Shona"
+        case .sindhi:
+            return "Sindhi"
         case .slovak:
             return "Slovak"
         case .slovenian:
             return "Slovenian"
+        case .somali:
+            return "Somali"
         case .spanish:
             return "Spanish"
         case .spanishLatinAmerica:
@@ -253,20 +420,42 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
             return "Swedish"
         case .swedishSweden:
             return "Swedish (Sweden)"
+        case .swahili:
+            return "Swahili"
         case .tagalog:
             return "Tagalog"
         case .tamil:
             return "Tamil"
         case .telugu:
             return "Telugu"
+        case .tajik:
+            return "Tajik"
+        case .thai:
+            return "Thai"
+        case .thaiThailand:
+            return "Thai (Thailand)"
         case .turkish:
             return "Turkish"
         case .ukrainian:
             return "Ukrainian"
         case .urdu:
             return "Urdu"
+        case .umbundu:
+            return "Umbundu"
+        case .uzbek:
+            return "Uzbek"
         case .vietnamese:
             return "Vietnamese"
+        case .welsh:
+            return "Welsh"
+        case .wolof:
+            return "Wolof"
+        case .xhosa:
+            return "Xhosa"
+        case .yoruba:
+            return "Yoruba"
+        case .zulu:
+            return "Zulu"
         }
     }
 
@@ -297,9 +486,15 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
 
     static func nextStarredLanguage(
         after currentLanguage: DeepgramLanguage,
-        starredLanguages: [DeepgramLanguage]
+        starredLanguages: [DeepgramLanguage],
+        availableLanguages: [DeepgramLanguage] = DeepgramLanguage.allCases
     ) -> DeepgramLanguage {
-        let languages = sortedForMenuBar(normalizedStarredLanguages(starredLanguages))
+        let languages = sortedForMenuBar(
+            normalizedStarredLanguages(
+                starredLanguages.filter(availableLanguages.contains),
+                fallback: [availableLanguages.first ?? .automatic]
+            )
+        )
         guard let currentIndex = languages.firstIndex(of: currentLanguage) else {
             return languages[0]
         }
@@ -330,4 +525,170 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable {
 
         return lhs.displayName.localizedStandardCompare(rhs.displayName)
     }
+}
+
+extension DeepgramLanguage {
+    /// Nova-3's current language catalog. The ElevenLabs-only cases stay in the
+    /// shared enum so saved history and app overrides can migrate safely.
+    static let deepgramNova3Languages: [DeepgramLanguage] = {
+        allCases.filter { !elevenLabsOnlyLanguages.contains($0) }
+    }()
+
+    /// Canonical language choices for ElevenLabs. Regional variants are not
+    /// included because ElevenLabs accepts a language code, not a regional hint.
+    static let elevenLabsLanguages: [DeepgramLanguage] = [
+        .automatic,
+        .afrikaans,
+        .amharic,
+        .arabic,
+        .armenian,
+        .assamese,
+        .asturian,
+        .azerbaijani,
+        .belarusian,
+        .bengali,
+        .bosnian,
+        .bulgarian,
+        .burmese,
+        .catalan,
+        .cantonese,
+        .cebuano,
+        .chichewa,
+        .croatian,
+        .czech,
+        .danish,
+        .dutch,
+        .english,
+        .estonian,
+        .filipino,
+        .finnish,
+        .french,
+        .fulah,
+        .galician,
+        .ganda,
+        .georgian,
+        .german,
+        .greek,
+        .gujarati,
+        .hausa,
+        .hebrew,
+        .hindi,
+        .hungarian,
+        .icelandic,
+        .igbo,
+        .indonesian,
+        .irish,
+        .italian,
+        .japanese,
+        .javanese,
+        .kabuverdianu,
+        .kannada,
+        .kazakh,
+        .khmer,
+        .korean,
+        .kurdish,
+        .kyrgyz,
+        .lao,
+        .latvian,
+        .lithuanian,
+        .lingala,
+        .luo,
+        .luxembourgish,
+        .macedonian,
+        .malay,
+        .malayalam,
+        .maltese,
+        .mandarinChinese,
+        .maori,
+        .marathi,
+        .mongolian,
+        .nepali,
+        .northernSotho,
+        .norwegian,
+        .occitan,
+        .odia,
+        .pashto,
+        .persian,
+        .polish,
+        .portuguese,
+        .punjabi,
+        .romanian,
+        .russian,
+        .serbian,
+        .shona,
+        .sindhi,
+        .slovak,
+        .slovenian,
+        .somali,
+        .spanish,
+        .swahili,
+        .swedish,
+        .tajik,
+        .tamil,
+        .telugu,
+        .thai,
+        .turkish,
+        .ukrainian,
+        .umbundu,
+        .urdu,
+        .uzbek,
+        .vietnamese,
+        .welsh,
+        .wolof,
+        .xhosa,
+        .yoruba,
+        .zulu,
+    ]
+
+    private static let elevenLabsOnlyLanguages: Set<DeepgramLanguage> = [
+        .afrikaans,
+        .amharic,
+        .assamese,
+        .asturian,
+        .azerbaijani,
+        .burmese,
+        .cantonese,
+        .cebuano,
+        .chichewa,
+        .filipino,
+        .fulah,
+        .galician,
+        .ganda,
+        .georgian,
+        .hausa,
+        .icelandic,
+        .igbo,
+        .irish,
+        .javanese,
+        .kabuverdianu,
+        .kazakh,
+        .khmer,
+        .kurdish,
+        .kyrgyz,
+        .lao,
+        .lingala,
+        .luo,
+        .luxembourgish,
+        .malayalam,
+        .maltese,
+        .mandarinChinese,
+        .maori,
+        .mongolian,
+        .northernSotho,
+        .occitan,
+        .odia,
+        .pashto,
+        .shona,
+        .sindhi,
+        .somali,
+        .swahili,
+        .tajik,
+        .umbundu,
+        .uzbek,
+        .welsh,
+        .wolof,
+        .xhosa,
+        .yoruba,
+        .zulu,
+    ]
 }

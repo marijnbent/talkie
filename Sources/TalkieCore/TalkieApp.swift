@@ -29,7 +29,7 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
     private let pasteboardPort: PasteboardPort = NSPasteboardAdapter()
     private let pasteVerificationPort: PasteVerificationPort = AccessibilityPasteVerificationAdapter()
     private var audioCapturePort: AudioCapturePort!
-    private let deepgramPort: DeepgramPort = DeepgramClientAdapter()
+    private let transcriptionStreamPort: TranscriptionStreamPort = TranscriptionStreamRouter()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -176,7 +176,7 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
             pasteboardPort: pasteboardPort,
             pasteVerificationPort: pasteVerificationPort,
             audioCapturePort: audioCapturePort,
-            deepgramPort: deepgramPort,
+            transcriptionStreamPort: transcriptionStreamPort,
             eventMonitorPort: eventMonitorPort,
             activeApplicationProvider: {
                 let app = NSWorkspace.shared.frontmostApplication

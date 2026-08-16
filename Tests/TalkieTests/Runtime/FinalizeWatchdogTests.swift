@@ -3,18 +3,18 @@ import XCTest
 
 @MainActor
 final class FinalizeWatchdogTests: XCTestCase {
-    func testWatchdogFinalizesOnceAndIgnoresLateCloseCallback() async {
+    func testElevenLabsFinalizationAllowsTimeForCommittedTranscript() async {
         let clock = ManualClock()
         let scheduler = ManualScheduler(clock: clock)
         let audio = FakeAudioCapturePort()
-        let deepgram = FakeDeepgramPort()
+        let elevenLabs = FakeTranscriptionStreamPort()
         let sound = FakeSoundPort()
 
         var finalizationCount = 0
 
         let runtime = RecordingRuntime(
             audioCapture: audio,
-            deepgram: deepgram,
+            transcriptionStream: elevenLabs,
             scheduler: scheduler,
             clock: clock,
             activeApplicationProvider: { nil },
@@ -26,7 +26,58 @@ final class FinalizeWatchdogTests: XCTestCase {
                 )
             },
             resolvedTranscriptionLanguageProvider: { _ in .automatic },
-            apiKeyProvider: { "dg_key" },
+            transcriptionSettingsProvider: {
+                TranscriptionProviderSettings(provider: .elevenLabs, apiKey: "eleven_key")
+            },
+            resolvedEnhancementPromptProvider: { _, _ in nil },
+            playSoundEffectsEnabledProvider: { false },
+            muteDuringRecordingProvider: { false },
+            soundPort: sound
+        )
+
+        runtime.onFinalizeRequested = { _ in
+            finalizationCount += 1
+        }
+
+        runtime.handle(action: .start(ownerShortcutID: UUID(), ownerMode: .click, latched: true))
+        await waitUntil { elevenLabs.connectCalls.count == 1 }
+        runtime.handle(action: .stop)
+        await waitUntil { elevenLabs.closeStreamCallCount == 1 }
+
+        scheduler.advance(by: 1.2)
+        await Task.yield()
+        XCTAssertEqual(finalizationCount, 0)
+
+        scheduler.advance(by: 2.3)
+        await waitUntil { finalizationCount == 1 }
+    }
+
+    func testWatchdogFinalizesOnceAndIgnoresLateCloseCallback() async {
+        let clock = ManualClock()
+        let scheduler = ManualScheduler(clock: clock)
+        let audio = FakeAudioCapturePort()
+        let deepgram = FakeTranscriptionStreamPort()
+        let sound = FakeSoundPort()
+
+        var finalizationCount = 0
+
+        let runtime = RecordingRuntime(
+            audioCapture: audio,
+            transcriptionStream: deepgram,
+            scheduler: scheduler,
+            clock: clock,
+            activeApplicationProvider: { nil },
+            audioInputSelectionProvider: {
+                ResolvedAudioInputSelection(
+                    selection: .systemDefault,
+                    selectedDevice: nil,
+                    systemDefaultDevice: nil
+                )
+            },
+            resolvedTranscriptionLanguageProvider: { _ in .automatic },
+            transcriptionSettingsProvider: {
+                TranscriptionProviderSettings(provider: .deepgram, apiKey: "dg_key")
+            },
             resolvedEnhancementPromptProvider: { _, _ in
                 EnhancementPromptContext(
                     name: "Clean",

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -8,14 +9,41 @@ final class OverlayWindowController {
     private var panel: NSPanel?
     private var isShowing = false
     private var animationID = UUID()
+    private var streamedOverlayWidth: CGFloat?
+    private var cachedCompactOverlayWidth: CGFloat?
+    private var lastTargetFrame: CGRect?
+    private var cancellables = Set<AnyCancellable>()
     var onCycleLanguage: (() -> Void)?
 
     init(sessionState: SessionState, settingsStore: SettingsStore) {
         self.sessionState = sessionState
         self.settingsStore = settingsStore
+
+        settingsStore.$showLiveTranscriptInRecorderWidget
+            .combineLatest(settingsStore.$showLanguageInRecorderWidget, settingsStore.$overlayPosition)
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.synchronizeStreamedOverlayWidth()
+                self?.updateVisibleFrame()
+            }
+            .store(in: &cancellables)
+
+        sessionState.$lastTranscript
+            .combineLatest(sessionState.$recordingPhase)
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.synchronizeStreamedOverlayWidth() {
+                    self.updateVisibleFrame()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func show() {
+        synchronizeStreamedOverlayWidth()
         if panel == nil {
             panel = makePanel()
         }
@@ -35,10 +63,11 @@ final class OverlayWindowController {
             panel.alphaValue = 1
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
+                context.duration = 0.16
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().setFrame(target, display: true)
             }
+            lastTargetFrame = target
             return
         }
 
@@ -58,6 +87,7 @@ final class OverlayWindowController {
             panel.animator().alphaValue = 1
             panel.animator().setFrame(target, display: true)
         }
+        lastTargetFrame = target
     }
 
     func hide() {
@@ -97,7 +127,7 @@ final class OverlayWindowController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 90, height: 32),
+            contentRect: NSRect(x: 0, y: 0, width: overlayWidth, height: overlayHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -145,13 +175,54 @@ final class OverlayWindowController {
         // keep driving layout after the overlay is hidden.
         panel.contentViewController = nil
         self.panel = nil
+        streamedOverlayWidth = nil
+        cachedCompactOverlayWidth = nil
+        lastTargetFrame = nil
+    }
+
+    private func updateVisibleFrame() {
+        guard isShowing, let panel, let screen = NSScreen.main else { return }
+        let target = targetFrame(screen: screen)
+        guard target != lastTargetFrame else { return }
+        lastTargetFrame = target
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.setFrame(target, display: true)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = target.width > panel.frame.width + 0.5 ? 0.2 : 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(target, display: true)
+        }
+    }
+
+    @discardableResult
+    private func synchronizeStreamedOverlayWidth() -> Bool {
+        let previousWidth = streamedOverlayWidth
+        let compactWidth = compactOverlayWidth
+        if cachedCompactOverlayWidth != compactWidth {
+            streamedOverlayWidth = nil
+            cachedCompactOverlayWidth = compactWidth
+        }
+        if let streamedText = presentation.streamedText {
+            streamedOverlayWidth = RecorderWidgetLayout.nextWidth(
+                compactWidth: compactWidth,
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: streamedText),
+                previousWidth: streamedOverlayWidth
+            )
+        } else {
+            streamedOverlayWidth = nil
+        }
+        return streamedOverlayWidth != previousWidth
     }
 
     private func targetFrame(screen: NSScreen) -> CGRect {
         let fullFrame = screen.frame
         let visibleFrame = screen.visibleFrame
         let width = min(overlayWidth, fullFrame.width - 80)
-        let height: CGFloat = 32
+        let height = overlayHeight
         let x = fullFrame.midX - width / 2
         let y: CGFloat
         switch settingsStore.overlayPosition {
@@ -164,8 +235,32 @@ final class OverlayWindowController {
     }
 
     private var overlayWidth: CGFloat {
-        let baseWidth: CGFloat = sessionState.overlayAppIcon == nil ? 90 : 116
-        return settingsStore.showLanguageInRecorderWidget ? baseWidth + 56 : baseWidth
+        if let streamedText = presentation.streamedText {
+            return streamedOverlayWidth ?? RecorderWidgetLayout.nextWidth(
+                compactWidth: compactOverlayWidth,
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: streamedText),
+                previousWidth: nil
+            )
+        }
+
+        return compactOverlayWidth
+    }
+
+    private var compactOverlayWidth: CGFloat {
+        let baseWidth: CGFloat = sessionState.overlayAppIcon == nil ? 80 : 106
+        return settingsStore.showLanguageInRecorderWidget ? baseWidth + 32 : baseWidth
+    }
+
+    private var overlayHeight: CGFloat {
+        presentation.showsStreamedText ? 58 : 34
+    }
+
+    private var presentation: RecorderWidgetPresentation {
+        RecorderWidgetPresentation(
+            transcript: sessionState.lastTranscript,
+            recordingPhase: sessionState.recordingPhase,
+            isLiveTranscriptEnabled: settingsStore.showLiveTranscriptInRecorderWidget
+        )
     }
 
     private func offscreenFrame(screen: NSScreen, width: CGFloat, height: CGFloat) -> CGRect {

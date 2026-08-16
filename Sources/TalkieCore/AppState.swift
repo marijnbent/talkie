@@ -146,6 +146,16 @@ final class AppState: ObservableObject {
         set { settingsStore.apiKey = newValue }
     }
 
+    var transcriptionProvider: TranscriptionProvider {
+        get { settingsStore.transcriptionProvider }
+        set { settingsStore.transcriptionProvider = newValue }
+    }
+
+    var elevenLabsApiKey: String {
+        get { settingsStore.elevenLabsApiKey }
+        set { settingsStore.elevenLabsApiKey = newValue }
+    }
+
     var shortcuts: [ShortcutConfig] {
         get { settingsStore.shortcuts }
         _modify { yield &settingsStore.shortcuts }
@@ -210,6 +220,11 @@ final class AppState: ObservableObject {
     var showLanguageInRecorderWidget: Bool {
         get { settingsStore.showLanguageInRecorderWidget }
         set { settingsStore.showLanguageInRecorderWidget = newValue }
+    }
+
+    var showLiveTranscriptInRecorderWidget: Bool {
+        get { settingsStore.showLiveTranscriptInRecorderWidget }
+        set { settingsStore.showLiveTranscriptInRecorderWidget = newValue }
     }
 
     var overlayPosition: OverlayPosition {

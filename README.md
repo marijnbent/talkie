@@ -4,11 +4,11 @@
 
 ![Talkie header](assets/readme-header.png)
 
-Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configurable modifier key to record, stream audio to Deepgram for transcription, optionally enhance the result with OpenRouter or Celeris, and paste the final text back into the active app.
+Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configurable modifier key to record, stream audio to Deepgram or ElevenLabs for transcription, optionally enhance the result with OpenRouter or Celeris, and paste the final text back into the active app.
 
 ## What It Does
 
-- Streams microphone audio to Deepgram over WebSocket and shows live transcription state while you speak
+- Streams microphone audio to Deepgram or ElevenLabs over WebSocket and shows live transcription state while you speak
 - Supports multiple configurable global shortcuts with `Hold`, `Click`, and `Both` activation modes
 - Auto-pastes the transcript into the frontmost app and restores the previous clipboard only after confirmed auto-paste
 - Routes enhancement prompts per shortcut, with optional per-app overrides based on the active macOS app
@@ -19,7 +19,7 @@ Talkie is a macOS menu bar dictation app built in Swift. Hold or tap a configura
 
 - macOS 13+
 - Swift 6.2 toolchain / Xcode with command line tools
-- A [Deepgram API key](https://console.deepgram.com)
+- A [Deepgram](https://console.deepgram.com) or [ElevenLabs](https://elevenlabs.io) API key
 - An [OpenRouter](https://openrouter.ai) or [Celeris](https://console.celeris.ai) API key if you want AI enhancement
 
 ## Quick Start
@@ -50,7 +50,7 @@ Release settings live in [`release/Release.plist`](release/Release.plist). Entit
 
 1. Launch the app. It runs as a menu bar app, not a Dock app.
 2. Open `Settings` from the menu bar icon.
-3. In `General`, enter your Deepgram API key.
+3. In `General`, select Deepgram or ElevenLabs and enter its API key.
 4. Grant microphone permission for recording.
 5. Grant accessibility permission for paste automation and global shortcut handling.
 6. In `Shortcuts`, pick the modifier key(s) and activation mode(s) you want.
@@ -62,7 +62,7 @@ The default shortcut is `Right Option` in `Both` mode.
 
 ### General
 
-- Deepgram API key
+- Deepgram or ElevenLabs speech-to-text provider and API key
 - Transcription language, including `Automatic`
 - Escape-to-cancel toggle
 - Sound effects toggle
@@ -100,7 +100,7 @@ When enhancement runs, the app appends the raw transcript inside `<transcription
 ## How A Recording Flows
 
 1. Press a configured shortcut to start recording.
-2. Audio is captured locally and streamed to Deepgram.
+2. Audio is captured locally and streamed to the selected speech-to-text provider.
 3. The overlay shows recording state and live audio level.
 4. Releasing the shortcut, pressing again, or cancelling with `Esc` ends the session depending on mode.
 5. If a prompt is configured for that shortcut or active app, the transcript is sent to the selected enhancement provider.
@@ -145,7 +145,7 @@ The package has no external Swift dependencies. The main targets are:
 
 - [`TalkieApp.swift`](Sources/TalkieCore/TalkieApp.swift): app bootstrap, dependency wiring, menu bar setup
 - [`RuntimeCoordinator.swift`](Sources/TalkieCore/RuntimeCoordinator.swift): coordinates shortcut, recording, paste, and overlay behavior
-- [`Runtime/RecordingRuntime.swift`](Sources/TalkieCore/Runtime/RecordingRuntime.swift): recording lifecycle, Deepgram connection, reconnect/finalize logic
+- [`Runtime/RecordingRuntime.swift`](Sources/TalkieCore/Runtime/RecordingRuntime.swift): recording lifecycle, speech-to-text connection, reconnect, and finalize logic
 - [`Runtime/PasteRuntime.swift`](Sources/TalkieCore/Runtime/PasteRuntime.swift): provider-based enhancement, clipboard handling, auto-paste
 - [`Runtime/PasteVerification.swift`](Sources/TalkieCore/Runtime/PasteVerification.swift): Accessibility-based auto-paste verification and UTF-16-safe paste matching
 - [`SettingsStore.swift`](Sources/TalkieCore/SettingsStore.swift): persisted settings in `UserDefaults`

@@ -15,15 +15,20 @@ enum MenuBarLanguageModel {
         for currentLanguage: DeepgramLanguage,
         showsSelectedLanguage: Bool
     ) -> String {
-        showsSelectedLanguage ? currentLanguage.menuBarAbbreviation : ""
+        guard showsSelectedLanguage, currentLanguage != .automatic else { return "" }
+        return currentLanguage.menuBarAbbreviation
     }
 
     static func submenuItems(
         currentLanguage: DeepgramLanguage,
-        starredLanguages: [DeepgramLanguage]
+        starredLanguages: [DeepgramLanguage],
+        availableLanguages: [DeepgramLanguage] = DeepgramLanguage.allCases
     ) -> [MenuBarLanguageItem] {
         DeepgramLanguage.sortedForMenuBar(
-            DeepgramLanguage.normalizedStarredLanguages(starredLanguages)
+            DeepgramLanguage.normalizedStarredLanguages(
+                starredLanguages.filter(availableLanguages.contains),
+                fallback: [availableLanguages.first ?? .automatic]
+            )
         ).map { language in
             MenuBarLanguageItem(
                 language: language,
@@ -71,10 +76,11 @@ final class MenuBarController: NSObject {
         settingsStore.$deepgramLanguage
             .combineLatest(
                 settingsStore.$starredDeepgramLanguages,
-                settingsStore.$showSelectedLanguageInMenuBar
+                settingsStore.$showSelectedLanguageInMenuBar,
+                settingsStore.$transcriptionProvider
             )
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _, _ in
+            .sink { [weak self] _, _, _, _ in
                 self?.rebuildMenu()
             }
             .store(in: &cancellables)
@@ -94,7 +100,7 @@ final class MenuBarController: NSObject {
         menu.addItem(historyItem)
 
         let languageItem = NSMenuItem(
-            title: MenuBarLanguageModel.title(for: settingsStore.deepgramLanguage),
+            title: MenuBarLanguageModel.title(for: selectedLanguage),
             action: nil,
             keyEquivalent: ""
         )
@@ -113,7 +119,7 @@ final class MenuBarController: NSObject {
     private func configureStatusItemButton() {
         guard let button = statusItem.button else { return }
         button.title = MenuBarLanguageModel.statusItemTitle(
-            for: settingsStore.deepgramLanguage,
+            for: selectedLanguage,
             showsSelectedLanguage: settingsStore.showSelectedLanguageInMenuBar
         )
     }
@@ -122,8 +128,9 @@ final class MenuBarController: NSObject {
         let submenu = NSMenu(title: "Language")
 
         for item in MenuBarLanguageModel.submenuItems(
-            currentLanguage: settingsStore.deepgramLanguage,
-            starredLanguages: settingsStore.starredDeepgramLanguages
+            currentLanguage: selectedLanguage,
+            starredLanguages: settingsStore.starredDeepgramLanguages,
+            availableLanguages: settingsStore.transcriptionProvider.languageOptions
         ) {
             let menuItem = NSMenuItem(
                 title: item.language.displayName,
@@ -163,6 +170,10 @@ final class MenuBarController: NSObject {
     private func performAfterMenuDismissal(_ action: @escaping () -> Void) {
         pendingMenuAction = action
         perform(#selector(runPendingMenuAction), with: nil, afterDelay: 0)
+    }
+
+    private var selectedLanguage: DeepgramLanguage {
+        settingsStore.transcriptionProvider.normalizedLanguage(settingsStore.deepgramLanguage)
     }
 
     @objc private func runPendingMenuAction() {

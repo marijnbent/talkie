@@ -33,7 +33,7 @@ final class RuntimeCoordinator {
         pasteboardPort: PasteboardPort,
         pasteVerificationPort: PasteVerificationPort,
         audioCapturePort: AudioCapturePort,
-        deepgramPort: DeepgramPort,
+        transcriptionStreamPort: TranscriptionStreamPort,
         eventMonitorPort: EventMonitorPort,
         activeApplicationProvider: @escaping () -> ActiveApplicationContext?
     ) {
@@ -63,7 +63,7 @@ final class RuntimeCoordinator {
 
         self.recordingRuntime = RecordingRuntime(
             audioCapture: audioCapturePort,
-            deepgram: deepgramPort,
+            transcriptionStream: transcriptionStreamPort,
             scheduler: schedulerPort,
             clock: clockPort,
             activeApplicationProvider: activeApplicationProvider,
@@ -77,8 +77,9 @@ final class RuntimeCoordinator {
                     activeAppBundleIdentifier: activeAppBundleIdentifier
                 )
             },
-            apiKeyProvider: { [weak settingsStore] in
-                settingsStore?.apiKey ?? ""
+            transcriptionSettingsProvider: { [weak settingsStore] in
+                settingsStore?.transcriptionProviderSettings
+                    ?? TranscriptionProviderSettings(provider: .deepgram, apiKey: "")
             },
             resolvedEnhancementPromptProvider: { [weak settingsStore, weak promptRoutingService] shortcutID, activeAppBundleIdentifier in
                 guard let settingsStore, let promptRoutingService, let shortcutID else { return nil }
@@ -149,6 +150,14 @@ final class RuntimeCoordinator {
             .receive(on: RunLoop.main)
             .sink { [weak self] limit in
                 self?.sessionState.applyHistoryLimit(limit)
+            }
+            .store(in: &cancellables)
+
+        settingsStore.$deepgramLanguage
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] language in
+                self?.recordingRuntime.changeTranscriptionLanguage(to: language)
             }
             .store(in: &cancellables)
     }
@@ -249,15 +258,16 @@ final class RuntimeCoordinator {
     }
 
     private func cycleLanguage() {
-        let currentLanguage = settingsStore.deepgramLanguage
+        let provider = settingsStore.transcriptionProvider
+        let currentLanguage = provider.normalizedLanguage(settingsStore.deepgramLanguage)
         let language = DeepgramLanguage.nextStarredLanguage(
             after: currentLanguage,
-            starredLanguages: settingsStore.starredDeepgramLanguages
+            starredLanguages: settingsStore.starredDeepgramLanguages,
+            availableLanguages: provider.languageOptions
         )
         guard language != currentLanguage else { return }
 
         settingsStore.deepgramLanguage = language
-        recordingRuntime.changeTranscriptionLanguage(to: language)
         if recordingRuntime.phase != .recording {
             sessionState.addLog("Language changed to \(language.displayName).", level: .info)
         }

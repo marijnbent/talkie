@@ -121,8 +121,9 @@ final class FakeAudioCapturePort: AudioCapturePort, @unchecked Sendable {
     }
 }
 
-final class FakeDeepgramPort: DeepgramPort {
+final class FakeTranscriptionStreamPort: TranscriptionStreamPort {
     struct ConnectCall {
+        let provider: TranscriptionProvider
         let apiKey: String
         let format: AudioStreamFormat
         let language: DeepgramLanguage
@@ -139,8 +140,19 @@ final class FakeDeepgramPort: DeepgramPort {
     var closeStreamCallCount = 0
     var closeCallbacks: [() -> Void] = []
 
-    func connect(apiKey: String, format: AudioStreamFormat, language: DeepgramLanguage) {
-        connectCalls.append(ConnectCall(apiKey: apiKey, format: format, language: language))
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    ) {
+        connectCalls.append(
+            ConnectCall(
+                provider: settings.provider,
+                apiKey: settings.apiKey,
+                format: format,
+                language: language
+            )
+        )
     }
 
     func sendAudio(data: Data) {

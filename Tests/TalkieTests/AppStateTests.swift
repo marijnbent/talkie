@@ -4,7 +4,10 @@ import XCTest
 @MainActor
 final class AppStateTests: XCTestCase {
     private let apiKeyDefaultsKey = "Talkie.ApiKey"
+    private let transcriptionProviderDefaultsKey = "Talkie.TranscriptionProvider"
+    private let elevenLabsApiKeyDefaultsKey = "Talkie.ElevenLabsApiKey"
     private let languageDefaultsKey = "Talkie.DeepgramLanguage"
+    private let automaticLanguageCandidatesDefaultsKey = "Talkie.AutomaticLanguageCandidates"
     private let starredLanguagesDefaultsKey = "Talkie.StarredDeepgramLanguages"
     private let shortcutsDefaultsKey = "Talkie.Shortcuts"
     private let escToCancelDefaultsKey = "Talkie.EscToCancelRecording"
@@ -12,12 +15,16 @@ final class AppStateTests: XCTestCase {
     private let restoreClipboardAfterPasteDefaultsKey = "Talkie.RestoreClipboardAfterPaste"
     private let showSelectedLanguageInMenuBarDefaultsKey = "Talkie.ShowSelectedLanguageInMenuBar"
     private let showLanguageInRecorderWidgetDefaultsKey = "Talkie.ShowLanguageInRecorderWidget"
+    private let showLiveTranscriptInRecorderWidgetDefaultsKey = "Talkie.ShowLiveTranscriptInRecorderWidget"
     private let audioInputSelectionDefaultsKey = "Talkie.AudioInputSelection"
 
     override func setUp() {
         super.setUp()
         UserDefaults.standard.removeObject(forKey: apiKeyDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: transcriptionProviderDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: elevenLabsApiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: languageDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: automaticLanguageCandidatesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: starredLanguagesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: shortcutsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: escToCancelDefaultsKey)
@@ -25,12 +32,16 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showLiveTranscriptInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
     }
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: apiKeyDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: transcriptionProviderDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: elevenLabsApiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: languageDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: automaticLanguageCandidatesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: starredLanguagesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: shortcutsDefaultsKey)
         UserDefaults.standard.removeObject(forKey: escToCancelDefaultsKey)
@@ -38,6 +49,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: restoreClipboardAfterPasteDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: showLiveTranscriptInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
         super.tearDown()
     }
@@ -108,12 +120,55 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.deepgramLanguage, .automatic)
     }
 
+    func testTranscriptionProviderDefaultsToDeepgram() {
+        let state = AppState()
+
+        XCTAssertEqual(state.transcriptionProvider, .deepgram)
+    }
+
+    func testElevenLabsProviderAndKeyPersistSeparatelyFromDeepgram() {
+        let state = AppState()
+        state.apiKey = "deepgram-key"
+        state.elevenLabsApiKey = "eleven-key"
+        state.transcriptionProvider = .elevenLabs
+
+        let restored = AppState()
+
+        XCTAssertEqual(restored.transcriptionProvider, .elevenLabs)
+        XCTAssertEqual(restored.apiKey, "deepgram-key")
+        XCTAssertEqual(restored.elevenLabsApiKey, "eleven-key")
+        XCTAssertEqual(
+            restored.settingsStore.transcriptionProviderSettings,
+            TranscriptionProviderSettings(provider: .elevenLabs, apiKey: "eleven-key")
+        )
+    }
+
     func testDeepgramLanguagePersists() {
         let state = AppState()
         state.deepgramLanguage = .french
 
         let restored = AppState()
         XCTAssertEqual(restored.deepgramLanguage, .french)
+    }
+
+    func testAutomaticLanguageCandidatesDefaultToDutchAndEnglish() {
+        let state = AppState()
+
+        XCTAssertEqual(
+            state.settingsStore.automaticLanguageCandidates,
+            [.dutch, .english]
+        )
+    }
+
+    func testAutomaticLanguageCandidatesPersistAndNormalize() {
+        let state = AppState()
+        state.settingsStore.automaticLanguageCandidates = [.russian, .english, .russian, .automatic]
+
+        let restored = AppState()
+        XCTAssertEqual(
+            restored.settingsStore.automaticLanguageCandidates,
+            [.english, .russian]
+        )
     }
 
     func testStarredDeepgramLanguagesDefaultToAutomaticAndEnglish() {
@@ -253,6 +308,19 @@ final class AppStateTests: XCTestCase {
 
         let restored = AppState()
         XCTAssertFalse(restored.showLanguageInRecorderWidget)
+    }
+
+    func testShowLiveTranscriptInRecorderWidgetDefaultsToTrue() {
+        let state = AppState()
+        XCTAssertTrue(state.showLiveTranscriptInRecorderWidget)
+    }
+
+    func testShowLiveTranscriptInRecorderWidgetPersists() {
+        let state = AppState()
+        state.showLiveTranscriptInRecorderWidget = false
+
+        let restored = AppState()
+        XCTAssertFalse(restored.showLiveTranscriptInRecorderWidget)
     }
 
     // MARK: - Clipboard Restore

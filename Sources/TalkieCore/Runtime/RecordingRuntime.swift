@@ -20,7 +20,7 @@ struct RecordingFinalization {
 }
 
 private final class RecordingAudioRouter: @unchecked Sendable {
-    private let deepgram: DeepgramPort
+    private let transcriptionStream: TranscriptionStreamPort
     private let lock = NSLock()
     private let publishInterval: UInt64 = 33_000_000
 
@@ -31,8 +31,8 @@ private final class RecordingAudioRouter: @unchecked Sendable {
     private var lastPublishTime: UInt64 = 0
     private var levelHandler: (@Sendable (UUID, Float) -> Void)?
 
-    init(deepgram: DeepgramPort) {
-        self.deepgram = deepgram
+    init(transcriptionStream: TranscriptionStreamPort) {
+        self.transcriptionStream = transcriptionStream
     }
 
     var onLevel: (@Sendable (UUID, Float) -> Void)? {
@@ -78,7 +78,7 @@ private final class RecordingAudioRouter: @unchecked Sendable {
 
         // Both consumers keep the same immutable Data storage through copy-on-write.
         rawCapture.append(data: chunk.data)
-        deepgram.sendAudio(data: chunk.data)
+        transcriptionStream.sendAudio(data: chunk.data)
 
         smoothedLevel = (smoothedLevel * 0.78) + (chunk.meterLevel * 0.22)
         let now = DispatchTime.now().uptimeNanoseconds
@@ -102,7 +102,7 @@ private final class RecordingAudioRouter: @unchecked Sendable {
 @MainActor
 final class RecordingRuntime {
     private let audioCapture: AudioCapturePort
-    private let deepgram: DeepgramPort
+    private let transcriptionStream: TranscriptionStreamPort
     private let audioRouter: RecordingAudioRouter
     private let scheduler: SchedulerPort
     private let clock: ClockPort
@@ -110,7 +110,7 @@ final class RecordingRuntime {
     private let activeApplicationProvider: () -> ActiveApplicationContext?
     private let audioInputSelectionProvider: () -> ResolvedAudioInputSelection
     private let resolvedTranscriptionLanguageProvider: (String?) -> DeepgramLanguage
-    private let apiKeyProvider: () -> String
+    private let transcriptionSettingsProvider: () -> TranscriptionProviderSettings
     private let resolvedEnhancementPromptProvider: (UUID?, String?) -> EnhancementPromptContext?
     private let playSoundEffectsEnabledProvider: () -> Bool
     private let muteDuringRecordingProvider: () -> Bool
@@ -142,8 +142,9 @@ final class RecordingRuntime {
     private var pendingTranscriptionError: String?
     private var pendingEnhancementPrompt: EnhancementPromptContext?
     private var pendingTranscriptionLanguage: DeepgramLanguage?
+    private var pendingTranscriptionSettings: TranscriptionProviderSettings?
     private var rawRecordingCapture: RawRecordingCapture?
-    private var deepgramReconnectAttempt = 0
+    private var transcriptionReconnectAttempt = 0
     private var hasPlayedTranscriptionFailureSound = false
     private var didFinalizeCurrentSession = false
     private var pendingStopAfterCaptureStart = false
@@ -164,13 +165,13 @@ final class RecordingRuntime {
 
     init(
         audioCapture: AudioCapturePort,
-        deepgram: DeepgramPort,
+        transcriptionStream: TranscriptionStreamPort,
         scheduler: SchedulerPort,
         clock: ClockPort,
         activeApplicationProvider: @escaping () -> ActiveApplicationContext?,
         audioInputSelectionProvider: @escaping () -> ResolvedAudioInputSelection,
         resolvedTranscriptionLanguageProvider: @escaping (String?) -> DeepgramLanguage,
-        apiKeyProvider: @escaping () -> String,
+        transcriptionSettingsProvider: @escaping () -> TranscriptionProviderSettings,
         resolvedEnhancementPromptProvider: @escaping (UUID?, String?) -> EnhancementPromptContext?,
         playSoundEffectsEnabledProvider: @escaping () -> Bool,
         muteDuringRecordingProvider: @escaping () -> Bool,
@@ -181,17 +182,17 @@ final class RecordingRuntime {
         stopDelay: TimeInterval = 0.2,
         reconnectDelay: TimeInterval = 0.4,
         finalizeWatchdogTimeout: TimeInterval = 1.2,
-        maxReconnectAttempts: Int = DeepgramReconnectPolicy.maxAttempts
+        maxReconnectAttempts: Int = TranscriptionReconnectPolicy.maxAttempts
     ) {
         self.audioCapture = audioCapture
-        self.deepgram = deepgram
-        self.audioRouter = RecordingAudioRouter(deepgram: deepgram)
+        self.transcriptionStream = transcriptionStream
+        self.audioRouter = RecordingAudioRouter(transcriptionStream: transcriptionStream)
         self.scheduler = scheduler
         self.clock = clock
         self.activeApplicationProvider = activeApplicationProvider
         self.audioInputSelectionProvider = audioInputSelectionProvider
         self.resolvedTranscriptionLanguageProvider = resolvedTranscriptionLanguageProvider
-        self.apiKeyProvider = apiKeyProvider
+        self.transcriptionSettingsProvider = transcriptionSettingsProvider
         self.resolvedEnhancementPromptProvider = resolvedEnhancementPromptProvider
         self.playSoundEffectsEnabledProvider = playSoundEffectsEnabledProvider
         self.muteDuringRecordingProvider = muteDuringRecordingProvider
@@ -219,24 +220,24 @@ final class RecordingRuntime {
                 self?.handleAudioInputConfigurationChanged(sessionID: sessionID)
             }
         }
-        self.deepgram.onTranscriptEvent = { [weak self] text, isFinal in
+        self.transcriptionStream.onTranscriptEvent = { [weak self] text, isFinal in
             Task { @MainActor in
                 self?.handleTranscriptEvent(text, isFinal: isFinal)
             }
         }
-        self.deepgram.onLog = { [weak self] message, level in
+        self.transcriptionStream.onLog = { [weak self] message, level in
             Task { @MainActor in
                 self?.onLog?(message, level)
             }
         }
-        self.deepgram.onTranscriptionError = { [weak self] message in
+        self.transcriptionStream.onTranscriptionError = { [weak self] message in
             Task { @MainActor in
                 self?.handleTranscriptionError(message)
             }
         }
-        self.deepgram.onConnectionDropped = { [weak self] reason in
+        self.transcriptionStream.onConnectionDropped = { [weak self] reason in
             Task { @MainActor in
-                self?.handleDeepgramConnectionDropped(reason: reason)
+                self?.handleTranscriptionConnectionDropped(reason: reason)
             }
         }
     }
@@ -272,29 +273,28 @@ final class RecordingRuntime {
 
     func changeTranscriptionLanguage(to language: DeepgramLanguage) {
         guard phase == .recording else { return }
-        guard pendingTranscriptionLanguage != language else { return }
         guard let format = currentRecordingFormat else { return }
-
-        let apiKey = apiKeyProvider().trimmed
-        guard !apiKey.isEmpty else { return }
+        guard let settings = pendingTranscriptionSettings, !settings.apiKey.isEmpty else { return }
+        let normalizedLanguage = settings.provider.normalizedLanguage(language)
+        guard pendingTranscriptionLanguage != normalizedLanguage else { return }
 
         cancelReconnect()
         onFinalizeLatestInterim?()
-        pendingTranscriptionLanguage = language
+        pendingTranscriptionLanguage = normalizedLanguage
         pendingTranscriptionError = nil
-        deepgramReconnectAttempt = 0
+        transcriptionReconnectAttempt = 0
         onStatus?(.listening)
-        deepgram.connect(apiKey: apiKey, format: format, language: language)
-        onLog?("Language changed to \(language.displayName) (\(language.deepgramCode)).", .info)
+        transcriptionStream.connect(settings: settings, format: format, language: normalizedLanguage)
+        onLog?("Language changed to \(normalizedLanguage.displayName).", .info)
     }
 
     private func startRecording(ownerShortcutID: UUID, ownerMode: ShortcutMode, isLatched: Bool) {
         guard phase == .idle else { return }
 
-        let apiKey = apiKeyProvider().trimmed
-        guard !apiKey.isEmpty else {
+        let transcriptionSettings = transcriptionSettingsProvider()
+        guard !transcriptionSettings.apiKey.isEmpty else {
             onStatus?(.missingAPIKey)
-            onLog?("Missing API key. Open Settings to add one.", .warning)
+            onLog?("Missing \(transcriptionSettings.provider.displayName) API key. Open Settings to add one.", .warning)
             onRequestOpenSettings?()
             return
         }
@@ -306,9 +306,10 @@ final class RecordingRuntime {
         pendingTranscriptionError = nil
         pendingEnhancementPrompt = nil
         pendingTranscriptionLanguage = nil
+        pendingTranscriptionSettings = transcriptionSettings
         currentActiveApplication = nil
         hasPlayedTranscriptionFailureSound = false
-        deepgramReconnectAttempt = 0
+        transcriptionReconnectAttempt = 0
         didFinalizeCurrentSession = false
         pendingStopAfterCaptureStart = false
         onWillStartRecording?()
@@ -335,7 +336,7 @@ final class RecordingRuntime {
         captureStartTask = Task { @MainActor [weak self] in
             await self?.completeCaptureStart(
                 sessionID: sessionID,
-                apiKey: apiKey,
+                transcriptionSettings: transcriptionSettings,
                 transcriptionLanguage: transcriptionLanguage
             )
         }
@@ -343,7 +344,7 @@ final class RecordingRuntime {
 
     private func completeCaptureStart(
         sessionID: UUID,
-        apiKey: String,
+        transcriptionSettings: TranscriptionProviderSettings,
         transcriptionLanguage: DeepgramLanguage
     ) async {
         do {
@@ -369,13 +370,18 @@ final class RecordingRuntime {
             } else {
                 onLog?("Input: \(resolvedAudioInput.displayName).", .info)
             }
-            deepgram.connect(apiKey: apiKey, format: format, language: transcriptionLanguage)
+            transcriptionStream.connect(
+                settings: transcriptionSettings,
+                format: format,
+                language: transcriptionLanguage
+            )
 
             if muteDuringRecordingProvider() {
                 onMuteForRecording?()
             }
             playSound("Tink")
-            onLog?("Language: \(transcriptionLanguage.displayName) (\(transcriptionLanguage.deepgramCode)).", .info)
+            onLog?("Provider: \(transcriptionSettings.provider.displayName).", .info)
+            onLog?("Language: \(transcriptionLanguage.displayName).", .info)
             onLog?("Listening started.", .info)
 
             if pendingStopAfterCaptureStart {
@@ -388,7 +394,7 @@ final class RecordingRuntime {
             guard ownership?.sessionID == sessionID, phase == .recording else { return }
             captureStartTask = nil
             finishActiveSession(
-                disconnectDeepgram: true,
+                disconnectTranscriptionStream: true,
                 clearPendingTranscriptionError: true,
                 hideOverlay: true
             )
@@ -433,7 +439,7 @@ final class RecordingRuntime {
             }
             self.captureStopTask = nil
             self.startFinalizeWatchdog()
-            self.deepgram.closeStream { [weak self] in
+            self.transcriptionStream.closeStream { [weak self] in
                 Task { @MainActor in
                     guard self?.ownership?.sessionID == sessionID else { return }
                     self?.finalizeIfNeeded()
@@ -482,7 +488,7 @@ final class RecordingRuntime {
                 transcriptionLanguage: transcriptionLanguage
             )
             self.finishActiveSession(
-                disconnectDeepgram: true,
+                disconnectTranscriptionStream: true,
                 clearPendingTranscriptionError: false,
                 hideOverlay: false
             )
@@ -492,7 +498,10 @@ final class RecordingRuntime {
 
     private func startFinalizeWatchdog() {
         cancelFinalizeWatchdog()
-        finalizeWatchdogTask = scheduler.schedule(after: finalizeWatchdogTimeout) { [weak self] in
+        let timeout = pendingTranscriptionSettings?.provider == .elevenLabs
+            ? max(finalizeWatchdogTimeout, 3.5)
+            : finalizeWatchdogTimeout
+        finalizeWatchdogTask = scheduler.schedule(after: timeout) { [weak self] in
             Task { @MainActor in
                 self?.finalizeIfNeeded()
             }
@@ -505,16 +514,17 @@ final class RecordingRuntime {
     }
 
     private func handleTranscriptEvent(_ text: String, isFinal: Bool) {
-        let wasRecovering = deepgramReconnectAttempt > 0 || reconnectTask != nil
+        let wasRecovering = transcriptionReconnectAttempt > 0 || reconnectTask != nil
         if wasRecovering {
             cancelReconnect()
-            deepgramReconnectAttempt = 0
+            transcriptionReconnectAttempt = 0
             if phase == .recording {
                 onStatus?(.listening)
             }
             if pendingTranscriptionError != nil {
                 pendingTranscriptionError = nil
-                onLog?("Deepgram connection recovered. Transcription resumed.", .info)
+                let provider = pendingTranscriptionSettings?.provider.displayName ?? "Transcription"
+                onLog?("\(provider) connection recovered. Transcription resumed.", .info)
             }
         }
 
@@ -535,28 +545,29 @@ final class RecordingRuntime {
         }
     }
 
-    private func handleDeepgramConnectionDropped(reason: String) {
+    private func handleTranscriptionConnectionDropped(reason: String) {
         guard phase == .recording else { return }
         guard currentRecordingFormat != nil else { return }
         guard reconnectTask == nil else { return }
 
         onFinalizeLatestInterim?()
 
-        if !DeepgramReconnectPolicy.shouldRetry(currentAttempt: deepgramReconnectAttempt) {
+        let provider = pendingTranscriptionSettings?.provider.displayName ?? "Transcription"
+        if !TranscriptionReconnectPolicy.shouldRetry(currentAttempt: transcriptionReconnectAttempt) {
             onStatus?(.connectionLostReleaseToFinalize)
             onLog?(
-                "Deepgram reconnect limit reached (\(maxReconnectAttempts) attempts). Last error: \(reason)",
+                "\(provider) reconnect limit reached (\(maxReconnectAttempts) attempts). Last error: \(reason)",
                 .error
             )
             return
         }
 
-        deepgramReconnectAttempt += 1
-        let attempt = deepgramReconnectAttempt
+        transcriptionReconnectAttempt += 1
+        let attempt = transcriptionReconnectAttempt
         let delayText = String(format: "%.1f", reconnectDelay)
         onStatus?(.connectionRecovering)
         onLog?(
-            "Deepgram connection dropped. Reconnecting in \(delayText)s (attempt \(attempt)/\(maxReconnectAttempts)).",
+            "\(provider) connection dropped. Reconnecting in \(delayText)s (attempt \(attempt)/\(maxReconnectAttempts)).",
             .warning
         )
 
@@ -566,13 +577,16 @@ final class RecordingRuntime {
                 self.reconnectTask = nil
                 guard self.phase == .recording else { return }
                 guard let format = self.currentRecordingFormat else { return }
-                let apiKey = self.apiKeyProvider().trimmed
-                guard !apiKey.isEmpty else { return }
+                guard let settings = self.pendingTranscriptionSettings,
+                      !settings.apiKey.isEmpty else { return }
 
-                self.onLog?("Attempting Deepgram reconnect (\(attempt)/\(self.maxReconnectAttempts)).", .warning)
+                self.onLog?(
+                    "Attempting \(settings.provider.displayName) reconnect (\(attempt)/\(self.maxReconnectAttempts)).",
+                    .warning
+                )
                 let language = self.pendingTranscriptionLanguage
                     ?? self.resolvedTranscriptionLanguageProvider(self.currentActiveApplication?.bundleIdentifier)
-                self.deepgram.connect(apiKey: apiKey, format: format, language: language)
+                self.transcriptionStream.connect(settings: settings, format: format, language: language)
             }
         }
     }
@@ -582,7 +596,7 @@ final class RecordingRuntime {
         onLog?("Audio input changed. Capture engine reset.", .warning)
         guard phase != .idle else { return }
 
-        finishActiveSession(disconnectDeepgram: true, clearPendingTranscriptionError: true, hideOverlay: true)
+        finishActiveSession(disconnectTranscriptionStream: true, clearPendingTranscriptionError: true, hideOverlay: true)
         onStatus?(.inputChangedReady)
         onLog?("Recording stopped because the input device changed.", .warning)
     }
@@ -590,7 +604,7 @@ final class RecordingRuntime {
     private func cancelRecording() {
         guard phase != .idle else { return }
 
-        finishActiveSession(disconnectDeepgram: true, clearPendingTranscriptionError: true, hideOverlay: true)
+        finishActiveSession(disconnectTranscriptionStream: true, clearPendingTranscriptionError: true, hideOverlay: true)
         playSound("Pop")
         onStatus?(.cancelled)
         onLog?("Recording cancelled.", .info)
@@ -616,7 +630,7 @@ final class RecordingRuntime {
     }
 
     private func finishActiveSession(
-        disconnectDeepgram: Bool,
+        disconnectTranscriptionStream: Bool,
         clearPendingTranscriptionError: Bool,
         hideOverlay: Bool
     ) {
@@ -640,8 +654,8 @@ final class RecordingRuntime {
             }
         }
 
-        if disconnectDeepgram {
-            deepgram.disconnect()
+        if disconnectTranscriptionStream {
+            transcriptionStream.disconnect()
         }
 
         rawRecordingCapture?.discard()
@@ -653,7 +667,8 @@ final class RecordingRuntime {
         currentActiveApplication = nil
         pendingEnhancementPrompt = nil
         pendingTranscriptionLanguage = nil
-        deepgramReconnectAttempt = 0
+        pendingTranscriptionSettings = nil
+        transcriptionReconnectAttempt = 0
         didFinalizeCurrentSession = false
         onRestoreMute?()
         onAudioLevel?(0)
