@@ -84,19 +84,18 @@ protocol SoundPort {
     func play(named: String)
 }
 
+enum KeyboardMonitorEvent {
+    case flagsChanged(keyCode: CGKeyCode, modifiers: NSEvent.ModifierFlags)
+    case keyDown(keyCode: CGKeyCode)
+}
+
 protocol EventMonitorPort {
-    func addGlobalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> Void
-    ) -> Any?
-
-    func addLocalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> NSEvent?
-    ) -> Any?
-
     func addKeyDownInterceptor(
         handler: @escaping (CGKeyCode) -> Bool
+    ) -> Any?
+
+    func addKeyboardMonitor(
+        handler: @escaping (KeyboardMonitorEvent) -> Void
     ) -> Any?
 
     func removeMonitor(_ monitor: Any)

@@ -22,7 +22,7 @@ public final class TalkieApp: NSObject, NSApplicationDelegate {
     private var runtimeCoordinator: RuntimeCoordinator!
     private var escCancelMonitor: EscCancelMonitor!
 
-    private let eventMonitorPort: EventMonitorPort = NSEventMonitorAdapter()
+    private let eventMonitorPort: EventMonitorPort = CGEventMonitorAdapter()
     private let schedulerPort: SchedulerPort = DispatchSchedulerAdapter()
     private let clockPort: ClockPort = SystemClockAdapter()
     private let soundPort: SoundPort = NSSoundAdapter()

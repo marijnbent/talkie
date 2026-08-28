@@ -3,20 +3,27 @@ import Foundation
 
 @MainActor
 final class ShortcutRuntime {
+    private struct MonitoredShortcut {
+        let id: UUID
+        let hotkey: Hotkey
+        let mode: ShortcutMode
+    }
+
+    private struct PendingShortcutGesture {
+        let shortcutID: UUID
+        let keyCode: CGKeyCode
+    }
+
     private let eventMonitor: EventMonitorPort
     private let clock: ClockPort
     private let stateMachine: ShortcutStateMachine
 
-    private var hotkeyListeners: [UUID: HotkeyListener] = [:]
-    private var shortcutGlobalMonitor: Any?
-    private var shortcutLocalMonitor: Any?
-    private var lastShortcutEventTimestamp: TimeInterval = 0
-    private var lastShortcutEventKeyCode: UInt16 = 0
-    private var lastShortcutEventModifiers: NSEvent.ModifierFlags = []
+    private var shortcuts: [MonitoredShortcut] = []
+    private var keyboardMonitor: Any?
+    private var pendingShortcutGesture: PendingShortcutGesture?
     private var isSuperCapsLockPressed = false
     private var isCyclingLanguageWithSuperCapsLock = false
 
-    private let shortcutEventDedupWindow: TimeInterval = 0.02
     private let superCapsLockModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
 
     var phaseProvider: (() -> RecordingPhase)?
@@ -35,64 +42,41 @@ final class ShortcutRuntime {
     }
 
     func configure(shortcuts: [ShortcutConfig]) {
-        hotkeyListeners.removeAll()
-
-        for shortcut in shortcuts {
-            let listener = HotkeyListener(hotkey: Hotkey(shortcutKey: shortcut.key))
-            let shortcutID = shortcut.id
-            let mode = shortcut.mode
-
-            listener.onKeyDown = { [weak self] in
-                self?.dispatch(eventType: .keyDown, shortcutID: shortcutID, mode: mode)
-            }
-            listener.onKeyUp = { [weak self] in
-                self?.dispatch(eventType: .keyUp, shortcutID: shortcutID, mode: mode)
-            }
-            hotkeyListeners[shortcut.id] = listener
+        self.shortcuts = shortcuts.map {
+            MonitoredShortcut(id: $0.id, hotkey: Hotkey(shortcutKey: $0.key), mode: $0.mode)
         }
+        pendingShortcutGesture = nil
     }
 
     func start() {
         stop()
 
-        shortcutGlobalMonitor = eventMonitor.addGlobalMonitor(matching: .flagsChanged) { [weak self] event in
-            DispatchQueue.main.async {
-                self?.handleShortcutEvent(event)
-            }
-        }
-
-        shortcutLocalMonitor = eventMonitor.addLocalMonitor(matching: .flagsChanged) { [weak self] event in
-            self?.handleShortcutEvent(event)
-            return event
+        keyboardMonitor = eventMonitor.addKeyboardMonitor { [weak self] event in
+            self?.handleKeyboardEvent(event)
         }
     }
 
     func stop() {
-        if let monitor = shortcutGlobalMonitor {
+        if let monitor = keyboardMonitor {
             eventMonitor.removeMonitor(monitor)
-            shortcutGlobalMonitor = nil
+            keyboardMonitor = nil
         }
-        if let monitor = shortcutLocalMonitor {
-            eventMonitor.removeMonitor(monitor)
-            shortcutLocalMonitor = nil
-        }
+        pendingShortcutGesture = nil
         isSuperCapsLockPressed = false
         isCyclingLanguageWithSuperCapsLock = false
     }
 
-    private func handleShortcutEvent(_ event: NSEvent) {
-        let normalizedModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let isDuplicate = event.keyCode == lastShortcutEventKeyCode
-            && normalizedModifiers == lastShortcutEventModifiers
-            && abs(event.timestamp - lastShortcutEventTimestamp) <= shortcutEventDedupWindow
-        if isDuplicate {
-            return
+    private func handleKeyboardEvent(_ event: KeyboardMonitorEvent) {
+        switch event {
+        case .flagsChanged(let keyCode, let modifiers):
+            handleShortcutFlagsChanged(keyCode: UInt16(keyCode), modifiers: modifiers)
+        case .keyDown(let keyCode):
+            handleCompanionKeyDown(keyCode: keyCode)
         }
+    }
 
-        lastShortcutEventTimestamp = event.timestamp
-        lastShortcutEventKeyCode = event.keyCode
-        lastShortcutEventModifiers = normalizedModifiers
-
+    private func handleShortcutFlagsChanged(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        let normalizedModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
         let wasSuperCapsLockPressed = isSuperCapsLockPressed
         isSuperCapsLockPressed = normalizedModifiers.contains(superCapsLockModifiers)
 
@@ -111,12 +95,29 @@ final class ShortcutRuntime {
             return
         }
 
-        for listener in hotkeyListeners.values {
-            listener.handle(event: event)
+        for shortcut in shortcuts where shortcut.hotkey.keyCode == keyCode {
+            let eventType: ShortcutEventType = normalizedModifiers.contains(shortcut.hotkey.modifiers)
+                ? .keyDown
+                : .keyUp
+            dispatch(
+                eventType: eventType,
+                shortcutID: shortcut.id,
+                shortcutKeyCode: CGKeyCode(shortcut.hotkey.keyCode),
+                mode: shortcut.mode
+            )
         }
     }
 
-    private func dispatch(eventType: ShortcutEventType, shortcutID: UUID, mode: ShortcutMode) {
+    private func dispatch(
+        eventType: ShortcutEventType,
+        shortcutID: UUID,
+        shortcutKeyCode: CGKeyCode,
+        mode: ShortcutMode
+    ) {
+        if eventType == .keyUp, pendingShortcutGesture?.shortcutID == shortcutID {
+            pendingShortcutGesture = nil
+        }
+
         let phase = phaseProvider?() ?? .idle
         let ownership = ownershipProvider?()
 
@@ -140,5 +141,26 @@ final class ShortcutRuntime {
 
         guard actions != [.noop] else { return }
         onActions?(actions)
+
+        if case .start = actions.first {
+            pendingShortcutGesture = PendingShortcutGesture(
+                shortcutID: shortcutID,
+                keyCode: shortcutKeyCode
+            )
+        }
+    }
+
+    private func handleCompanionKeyDown(keyCode: CGKeyCode) {
+        guard let pendingShortcutGesture,
+              keyCode != pendingShortcutGesture.keyCode else { return }
+
+        guard phaseProvider?() == .recording,
+              ownershipProvider?()?.ownerShortcutID == pendingShortcutGesture.shortcutID else {
+            self.pendingShortcutGesture = nil
+            return
+        }
+
+        self.pendingShortcutGesture = nil
+        onActions?([.discard])
     }
 }

@@ -18,6 +18,7 @@ enum ShortcutAction: Equatable {
     case start(ownerShortcutID: UUID, ownerMode: ShortcutMode, latched: Bool)
     case stop
     case cancel
+    case discard
     case scheduleStop
     case setLatched(Bool)
     case noop

@@ -256,6 +256,8 @@ final class RecordingRuntime {
             stopRecording()
         case .cancel:
             cancelRecording()
+        case .discard:
+            discardRecording()
         case .scheduleStop:
             scheduleStopRecording()
         case .setLatched(let latched):
@@ -608,6 +610,14 @@ final class RecordingRuntime {
         playSound("Pop")
         onStatus?(.cancelled)
         onLog?("Recording cancelled.", .info)
+    }
+
+    /// Silently removes a recording that started as part of another keyboard shortcut.
+    private func discardRecording() {
+        guard phase == .recording else { return }
+
+        finishActiveSession(disconnectTranscriptionStream: true, clearPendingTranscriptionError: true, hideOverlay: true)
+        onStatus?(.idle)
     }
 
     private func scheduleStopRecording() {

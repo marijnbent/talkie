@@ -272,40 +272,24 @@ final class FakePasteVerificationPort: PasteVerificationPort {
 
 final class FakeEventMonitorPort: EventMonitorPort {
     var keyDownInterceptor: ((CGKeyCode) -> Bool)?
-    var removedMonitorCount = 0
-    private var globalMonitorHandler: ((NSEvent) -> Void)?
-    private var localMonitorHandler: ((NSEvent) -> NSEvent?)?
-
-    func addGlobalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> Void
-    ) -> Any? {
-        globalMonitorHandler = handler
-        return "globalMonitor"
-    }
-
-    func addLocalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> NSEvent?
-    ) -> Any? {
-        localMonitorHandler = handler
-        return "localMonitor"
-    }
+    var keyboardMonitor: ((KeyboardMonitorEvent) -> Void)?
 
     func addKeyDownInterceptor(handler: @escaping (CGKeyCode) -> Bool) -> Any? {
         keyDownInterceptor = handler
         return "keyDownInterceptor"
     }
 
+    func addKeyboardMonitor(handler: @escaping (KeyboardMonitorEvent) -> Void) -> Any? {
+        keyboardMonitor = handler
+        return "keyboardMonitor"
+    }
+
     func removeMonitor(_ monitor: Any) {
-        removedMonitorCount += 1
         switch monitor as? String {
-        case "globalMonitor":
-            globalMonitorHandler = nil
-        case "localMonitor":
-            localMonitorHandler = nil
         case "keyDownInterceptor":
             keyDownInterceptor = nil
+        case "keyboardMonitor":
+            keyboardMonitor = nil
         default:
             break
         }
@@ -313,29 +297,12 @@ final class FakeEventMonitorPort: EventMonitorPort {
 
     @discardableResult
     func sendKeyDown(_ keyCode: CGKeyCode) -> Bool {
-        keyDownInterceptor?(keyCode) ?? false
+        keyboardMonitor?(.keyDown(keyCode: keyCode))
+        return keyDownInterceptor?(keyCode) ?? false
     }
 
-    func sendLocalFlagsChanged(
-        keyCode: UInt16,
-        modifiers: NSEvent.ModifierFlags,
-        timestamp: TimeInterval
-    ) {
-        guard let event = NSEvent.keyEvent(
-            with: .flagsChanged,
-            location: .zero,
-            modifierFlags: modifiers,
-            timestamp: timestamp,
-            windowNumber: 0,
-            context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "",
-            isARepeat: false,
-            keyCode: keyCode
-        ) else {
-            return
-        }
-        _ = localMonitorHandler?(event)
+    func sendFlagsChanged(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        keyboardMonitor?(.flagsChanged(keyCode: CGKeyCode(keyCode), modifiers: modifiers))
     }
 }
 

@@ -90,6 +90,21 @@ final class RecordingRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.finalizations.value.count, 0)
     }
 
+    func testDiscardSilentlyStopsProvisionalRecording() async {
+        let harness = makeHarness()
+
+        harness.runtime.handle(action: .start(ownerShortcutID: UUID(), ownerMode: .both, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+
+        harness.runtime.handle(action: .discard)
+
+        XCTAssertEqual(harness.runtime.phase, .idle)
+        XCTAssertEqual(harness.statuses.value.last, .idle)
+        XCTAssertEqual(harness.deepgram.disconnectCallCount, 1)
+        XCTAssertEqual(harness.finalizations.value.count, 0)
+        XCTAssertTrue(harness.rawRecordingCapture.discarded)
+    }
+
     func testFinalizeIncludesResolvedEnhancementPromptMetadata() async {
         let enhancement = EnhancementPromptContext(
             name: "Slack tidy",

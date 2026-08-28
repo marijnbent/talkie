@@ -306,8 +306,8 @@ final class NSPasteboardAdapter: PasteboardPort {
     }
 }
 
-struct NSEventMonitorAdapter: EventMonitorPort {
-    private final class KeyDownInterceptorToken {
+struct CGEventMonitorAdapter: EventMonitorPort {
+    private final class EventTapToken {
         let eventTap: CFMachPort
         let runLoopSource: CFRunLoopSource
         let userInfo: UnsafeMutableRawPointer
@@ -319,81 +319,96 @@ struct NSEventMonitorAdapter: EventMonitorPort {
         }
     }
 
-    func addGlobalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> Void
-    ) -> Any? {
-        NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handler)
-    }
-
-    func addLocalMonitor(
-        matching mask: NSEvent.EventTypeMask,
-        handler: @escaping (NSEvent) -> NSEvent?
-    ) -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)
-    }
-
     func addKeyDownInterceptor(
         handler: @escaping (CGKeyCode) -> Bool
     ) -> Any? {
-        let callback: CGEventTapCallBack = { _, type, event, userInfo in
-            guard type == .keyDown else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            guard let userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            let interceptor = Unmanaged<KeyDownInterceptorBox>
-                .fromOpaque(userInfo)
-                .takeUnretainedValue()
+        addEventTap(location: .cgSessionEventTap, eventTypes: [.keyDown]) { type, event in
+            guard type == .keyDown else { return false }
             let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-            return interceptor.handler(keyCode) ? nil : Unmanaged.passUnretained(event)
+            return handler(keyCode)
+        }
+    }
+
+    func addKeyboardMonitor(
+        handler: @escaping (KeyboardMonitorEvent) -> Void
+    ) -> Any? {
+        // HID events arrive before another app can consume its registered hotkey.
+        addEventTap(location: .cghidEventTap, eventTypes: [.flagsChanged, .keyDown]) { type, event in
+            let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+            switch type {
+            case .flagsChanged:
+                let modifiers = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+                handler(.flagsChanged(keyCode: keyCode, modifiers: modifiers))
+            case .keyDown:
+                handler(.keyDown(keyCode: keyCode))
+            default:
+                break
+            }
+            return false
+        }
+    }
+
+    private func addEventTap(
+        location: CGEventTapLocation,
+        eventTypes: [CGEventType],
+        handler: @escaping (CGEventType, CGEvent) -> Bool
+    ) -> Any? {
+        let callback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            let box = Unmanaged<EventTapHandlerBox>.fromOpaque(userInfo).takeUnretainedValue()
+
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let eventTap = box.eventTap {
+                    CGEvent.tapEnable(tap: eventTap, enable: true)
+                }
+                return Unmanaged.passUnretained(event)
+            }
+
+            return box.handler(type, event) ? nil : Unmanaged.passUnretained(event)
         }
 
-        let interceptor = KeyDownInterceptorBox(handler: handler)
-        let userInfo = Unmanaged.passRetained(interceptor).toOpaque()
-        let mask = (1 << CGEventType.keyDown.rawValue)
+        let box = EventTapHandlerBox(handler: handler)
+        let userInfo = Unmanaged.passRetained(box).toOpaque()
+        let mask = eventTypes.reduce(CGEventMask(0)) {
+            $0 | (CGEventMask(1) << $1.rawValue)
+        }
 
         guard let eventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: location,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: CGEventMask(mask),
             callback: callback,
             userInfo: userInfo
         ) else {
-            Unmanaged<KeyDownInterceptorBox>.fromOpaque(userInfo).release()
+            Unmanaged<EventTapHandlerBox>.fromOpaque(userInfo).release()
             return nil
         }
 
         guard let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0) else {
-            Unmanaged<KeyDownInterceptorBox>.fromOpaque(userInfo).release()
+            Unmanaged<EventTapHandlerBox>.fromOpaque(userInfo).release()
             CFMachPortInvalidate(eventTap)
             return nil
         }
+        box.eventTap = eventTap
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-        return KeyDownInterceptorToken(eventTap: eventTap, runLoopSource: runLoopSource, userInfo: userInfo)
+        return EventTapToken(eventTap: eventTap, runLoopSource: runLoopSource, userInfo: userInfo)
     }
 
     func removeMonitor(_ monitor: Any) {
-        if let token = monitor as? KeyDownInterceptorToken {
-            Unmanaged<KeyDownInterceptorBox>.fromOpaque(token.userInfo).release()
-            CFMachPortInvalidate(token.eventTap)
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), token.runLoopSource, .commonModes)
-            return
-        }
-
-        NSEvent.removeMonitor(monitor)
+        guard let token = monitor as? EventTapToken else { return }
+        Unmanaged<EventTapHandlerBox>.fromOpaque(token.userInfo).release()
+        CFMachPortInvalidate(token.eventTap)
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), token.runLoopSource, .commonModes)
     }
 }
 
-private final class KeyDownInterceptorBox {
-    let handler: (CGKeyCode) -> Bool
+private final class EventTapHandlerBox {
+    let handler: (CGEventType, CGEvent) -> Bool
+    var eventTap: CFMachPort?
 
-    init(handler: @escaping (CGKeyCode) -> Bool) {
+    init(handler: @escaping (CGEventType, CGEvent) -> Bool) {
         self.handler = handler
     }
 }
