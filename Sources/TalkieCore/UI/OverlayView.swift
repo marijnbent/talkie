@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct RecorderWidgetPresentation: Equatable {
@@ -31,6 +32,15 @@ enum RecorderWidgetMeter {
         let normalizedLevel = min(max(level, 0), 1)
         guard normalizedLevel > quietThreshold else { return 0 }
         return (normalizedLevel - quietThreshold) / (1 - quietThreshold)
+    }
+
+    static func smoothedLevel(current: CGFloat, target: CGFloat) -> CGFloat {
+        let normalizedCurrent = min(max(current, 0), 1)
+        let normalizedTarget = min(max(target, 0), 1)
+        let difference = normalizedTarget - normalizedCurrent
+        guard abs(difference) >= 0.004 else { return normalizedTarget }
+        let response: CGFloat = difference > 0 ? 0.32 : 0.18
+        return normalizedCurrent + difference * response
     }
 }
 
@@ -145,22 +155,16 @@ struct OverlayView: View {
                     )
                 }
 
-                PulseOrb(enhancing: isEnhancing)
+                RecordingStatusOrb(
+                    level: sessionState.audioLevel,
+                    isEnhancing: isEnhancing
+                )
 
                 if let appIcon = sessionState.overlayAppIcon {
                     OverlayAppIcon(icon: appIcon)
                 }
-
-                if isEnhancing {
-                    SparkleStars()
-                        .transition(.opacity.combined(with: .scale(scale: 0.82)))
-                } else {
-                    MiniWaveform(level: sessionState.audioLevel)
-                        .transition(.opacity.combined(with: .scale(scale: 0.82)))
-                }
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .animation(contentAnimation, value: isEnhancing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .padding(.horizontal, 12)
@@ -523,117 +527,141 @@ private struct OverlayAppIcon: View {
     }
 }
 
-private struct MiniWaveform: View {
-    @Environment(\.colorScheme) private var colorScheme
+private struct RecordingStatusOrb: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let level: CGFloat
+    let isEnhancing: Bool
+    @State private var targetLevel: CGFloat = 0
+    @State private var displayedLevel: CGFloat = 0
+    @State private var enhancementMotion = false
+    private let ticker = Timer.publish(every: 1 / 30, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ZStack {
+            RecordingHalo(level: displayedLevel)
+                .opacity(isEnhancing ? 0 : 1)
+            EnhancementHalo(isMoving: enhancementMotion)
+                .opacity(isEnhancing ? 1 : 0)
+            RecordingDot()
+        }
+        .frame(width: 32, height: 32)
+        .onAppear {
+            let visibleLevel = RecorderWidgetMeter.visibleLevel(for: level)
+            targetLevel = visibleLevel
+            displayedLevel = visibleLevel
+            enhancementMotion = isEnhancing && !reduceMotion
+        }
+        .onChange(of: level) { updatedLevel in
+            targetLevel = RecorderWidgetMeter.visibleLevel(for: updatedLevel)
+            if reduceMotion {
+                displayedLevel = targetLevel
+            }
+        }
+        .onChange(of: isEnhancing) { enhancing in
+            enhancementMotion = enhancing && !reduceMotion
+        }
+        .onChange(of: reduceMotion) { shouldReduceMotion in
+            if shouldReduceMotion {
+                displayedLevel = targetLevel
+            }
+            enhancementMotion = isEnhancing && !shouldReduceMotion
+        }
+        .onReceive(ticker) { _ in
+            guard !reduceMotion else { return }
+            displayedLevel = RecorderWidgetMeter.smoothedLevel(
+                current: displayedLevel,
+                target: targetLevel
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Audio level")
+    }
+}
+
+private struct RecordingHalo: View {
     let level: CGFloat
 
-    private let barCount = 5
-    private let barWidth: CGFloat = 2.5
-    private let spacing: CGFloat = 2
-    private let maxHeight: CGFloat = 16
-    private let minHeight: CGFloat = 3
-    private let weights: [CGFloat] = [0.5, 0.8, 1.0, 0.75, 0.45]
-
-    private var visibleLevel: CGFloat {
-        RecorderWidgetMeter.visibleLevel(for: level)
-    }
-
     var body: some View {
-        HStack(spacing: spacing) {
-            ForEach(0..<barCount, id: \.self) { i in
-                RoundedRectangle(cornerRadius: barWidth / 2)
-                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.82 : 0.48))
-                    .frame(width: barWidth, height: barHeight(for: i))
-            }
-        }
-        .animation(.easeOut(duration: 0.12), value: visibleLevel)
-    }
-
-    private func barHeight(for index: Int) -> CGFloat {
-        minHeight + (maxHeight - minHeight) * visibleLevel * weights[index]
-    }
-}
-
-private struct SparkleStars: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animate = false
-
-    var body: some View {
-        ZStack {
-            star(size: 10, opacity: 1.0, dx: 2.5, dy: -2, duration: 1.2)
-            star(size: 7, opacity: 0.7, dx: -3, dy: 2.5, duration: 1.5)
-            star(size: 6, opacity: 0.5, dx: 2, dy: 1.5, duration: 1.0)
-        }
-        .frame(width: 23, height: 20)
-        .onAppear { animate = !reduceMotion }
-        .onChange(of: reduceMotion) { animate = !$0 }
-    }
-
-    private func star(size: CGFloat, opacity: Double, dx: CGFloat, dy: CGFloat, duration: Double) -> some View {
-        StarShape()
-            .fill(Color.primary.opacity(opacity * (colorScheme == .dark ? 1 : 0.55)))
-            .frame(width: size, height: size)
-            .offset(x: animate ? dx : -dx, y: animate ? dy : -dy)
-            .animation(
-                .easeInOut(duration: duration).repeatForever(autoreverses: true),
-                value: animate
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color.red.opacity(0.42 + 0.26 * level),
+                        Color.red.opacity(0.08 + 0.04 * level),
+                    ],
+                    center: .center,
+                    startRadius: 2,
+                    endRadius: 16
+                )
             )
+            .frame(width: 18 + 12 * level, height: 18 + 12 * level)
     }
 }
 
-private struct StarShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let outer = min(rect.width, rect.height) / 2
-        let inner = outer * 0.38
-        var path = Path()
-        for i in 0..<8 {
-            let angle = Double(i) * .pi / 4 - .pi / 2
-            let r = i.isMultiple(of: 2) ? outer : inner
-            let pt = CGPoint(x: center.x + CGFloat(cos(angle)) * r,
-                             y: center.y + CGFloat(sin(angle)) * r)
-            if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct PulseOrb: View {
-    @Environment(\.colorScheme) private var colorScheme
+private struct EnhancementHalo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var enhancing: Bool = false
+    let isMoving: Bool
 
     var body: some View {
         ZStack {
-            if enhancing {
-                Circle()
-                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.48 : 0.28))
-                    .frame(width: 8, height: 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
-            } else {
-                Circle()
-                    .fill(Color.red.opacity(0.18))
-                    .frame(width: 20, height: 20)
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [Color.red, Color.red.opacity(0.7)],
-                            center: .center,
-                            startRadius: 2,
-                            endRadius: 12
-                        )
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.red.opacity(0.26),
+                            Color.pink.opacity(0.12),
+                            Color.clear,
+                        ],
+                        center: .center,
+                        startRadius: 3,
+                        endRadius: 16
                     )
-                    .frame(width: 8, height: 8)
-                    .shadow(color: Color.red.opacity(0.48), radius: 5, x: 0, y: 0)
-                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
-            }
+                )
+                .frame(
+                    width: isMoving ? 25 : 20,
+                    height: isMoving ? 25 : 20
+                )
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                    value: isMoving
+                )
+
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            Color.red.opacity(0.9),
+                            Color.pink.opacity(0.72),
+                            Color.orange.opacity(0.5),
+                            Color.clear,
+                            Color.red.opacity(0.9),
+                        ],
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 1.6, lineCap: .round)
+                )
+                .frame(width: 21, height: 21)
+                .rotationEffect(.degrees(isMoving ? 360 : 0))
+                .animation(
+                    reduceMotion ? nil : .linear(duration: 1.25).repeatForever(autoreverses: false),
+                    value: isMoving
+                )
         }
-        .frame(width: 22, height: 22)
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.78),
-            value: enhancing
-        )
+    }
+}
+
+private struct RecordingDot: View {
+    var body: some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [Color.red, Color.red.opacity(0.72)],
+                    center: .center,
+                    startRadius: 1,
+                    endRadius: 4
+                )
+            )
+            .frame(width: 8, height: 8)
+            .shadow(color: Color.red.opacity(0.5), radius: 3)
     }
 }

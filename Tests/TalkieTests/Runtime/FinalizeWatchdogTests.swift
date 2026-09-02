@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class FinalizeWatchdogTests: XCTestCase {
-    func testElevenLabsFinalizationAllowsTimeForCommittedTranscript() async {
+    func testFinalizationAllowsTimeForCommittedTranscript() async {
         let clock = ManualClock()
         let scheduler = ManualScheduler(clock: clock)
         let audio = FakeAudioCapturePort()
@@ -102,6 +102,10 @@ final class FinalizeWatchdogTests: XCTestCase {
         await waitUntil { deepgram.closeStreamCallCount == 1 }
 
         scheduler.advance(by: 1.2)
+        await Task.yield()
+        XCTAssertEqual(finalizationCount, 0)
+
+        scheduler.advance(by: 2.3)
         await waitUntil { finalizationCount == 1 }
 
         XCTAssertEqual(finalizationCount, 1)

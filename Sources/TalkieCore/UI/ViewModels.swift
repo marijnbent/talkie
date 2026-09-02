@@ -36,7 +36,9 @@ final class GeneralSettingsViewModel: ObservableObject {
         settingsStore.transcriptionProvider.automaticLanguageCandidateOptions
     }
     var automaticLanguageCandidates: [DeepgramLanguage] {
-        settingsStore.automaticLanguageCandidates
+        settingsStore.transcriptionProvider.normalizedAutomaticLanguageCandidates(
+            settingsStore.automaticLanguageCandidates
+        )
     }
     var automaticLanguageCandidatesSummary: String {
         let names = automaticLanguageCandidates.map(\.displayName)

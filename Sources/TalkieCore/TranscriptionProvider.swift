@@ -3,6 +3,7 @@ import Foundation
 enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
     case deepgram
     case elevenLabs
+    case muse
 
     var id: String { rawValue }
 
@@ -12,6 +13,8 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             return "Deepgram"
         case .elevenLabs:
             return "ElevenLabs"
+        case .muse:
+            return "Muse"
         }
     }
 
@@ -21,6 +24,8 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             DeepgramLanguage.deepgramNova3Languages
         case .elevenLabs:
             DeepgramLanguage.elevenLabsLanguages
+        case .muse:
+            DeepgramLanguage.museLanguages
         }
     }
 
@@ -28,7 +33,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .deepgram:
             false
-        case .elevenLabs:
+        case .elevenLabs, .muse:
             true
         }
     }
@@ -42,7 +47,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .deepgram:
             []
-        case .elevenLabs:
+        case .elevenLabs, .muse:
             [.dutch, .english]
         }
     }
@@ -59,7 +64,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .deepgram:
             return "Automatic uses Deepgram's multilingual streaming model; custom language limits are not available."
-        case .elevenLabs:
+        case .elevenLabs, .muse:
             return "Automatic uses the selected languages only."
         }
     }
@@ -97,6 +102,25 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
                 return .mandarinChinese
             case .tagalog:
                 return .filipino
+            default:
+                let baseCode = language.rawValue.split(separator: "-", maxSplits: 1).first.map(String.init)
+                return languageOptions.first(where: { $0.rawValue == baseCode }) ?? .automatic
+            }
+        case .muse:
+            if languageOptions.contains(language) {
+                return language
+            }
+
+            switch language {
+            case .chineseCantonese,
+                 .chineseMandarinSimplified,
+                 .chineseMandarinSimplifiedChina,
+                 .chineseMandarinSimplifiedHans,
+                 .chineseMandarinTraditional,
+                 .chineseMandarinTraditionalHant:
+                return .mandarinChinese
+            case .filipino:
+                return .tagalog
             default:
                 let baseCode = language.rawValue.split(separator: "-", maxSplits: 1).first.map(String.init)
                 return languageOptions.first(where: { $0.rawValue == baseCode }) ?? .automatic

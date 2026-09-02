@@ -263,7 +263,7 @@ final class ElevenLabsClient: NSObject, @unchecked Sendable {
         guard self.task === task, !isClosing else { return }
         isConnected = false
         self.task = nil
-        reportTranscriptionError(message)
+        onLog?(message, .error)
         onConnectionDropped?(message)
     }
 

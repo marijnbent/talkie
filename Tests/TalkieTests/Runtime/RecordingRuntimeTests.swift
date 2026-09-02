@@ -65,6 +65,54 @@ final class RecordingRuntimeTests: XCTestCase {
         XCTAssertEqual(harness.deepgram.connectCalls.count, 1)
     }
 
+    func testProviderErrorIsPreservedWhenConnectionThenDrops() async {
+        let harness = makeHarness()
+        harness.runtime.handle(action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+
+        harness.deepgram.emitTranscriptionError("Provider error: quota exceeded")
+        harness.deepgram.emitConnectionDropped("WebSocket receive error: Socket is not connected")
+        harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
+        harness.deepgram.completeClose()
+        await waitUntil { harness.finalizations.value.count == 1 }
+
+        XCTAssertEqual(harness.finalizations.value.first?.transcriptionError, "Provider error: quota exceeded")
+    }
+
+    func testProviderErrorReplacesEarlierConnectionError() async {
+        let harness = makeHarness()
+        harness.runtime.handle(action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+
+        harness.deepgram.emitConnectionDropped("WebSocket receive error: Socket is not connected")
+        harness.deepgram.emitTranscriptionError("Provider error: quota exceeded")
+        harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
+        harness.deepgram.completeClose()
+        await waitUntil { harness.finalizations.value.count == 1 }
+
+        XCTAssertEqual(harness.finalizations.value.first?.transcriptionError, "Provider error: quota exceeded")
+    }
+
+    func testConnectionErrorIsSavedWhenProviderReturnsNoError() async {
+        let harness = makeHarness()
+        harness.runtime.handle(action: .start(ownerShortcutID: UUID(), ownerMode: .hold, latched: false))
+        await waitUntil { harness.deepgram.connectCalls.count == 1 }
+
+        harness.deepgram.emitConnectionDropped("WebSocket receive error: Socket is not connected")
+        await Task.yield()
+        harness.runtime.handle(action: .stop)
+        await waitUntil { harness.deepgram.closeStreamCallCount == 1 }
+        harness.deepgram.completeClose()
+        await waitUntil { harness.finalizations.value.count == 1 }
+
+        XCTAssertEqual(
+            harness.finalizations.value.first?.transcriptionError,
+            "WebSocket receive error: Socket is not connected"
+        )
+    }
+
     func testCancelFromEscWhileFinalizingStopsSessionWithoutFinalizing() async {
         let harness = makeHarness()
         var overlayUpdates: [(Bool, String)] = []

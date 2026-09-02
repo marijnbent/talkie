@@ -13,11 +13,19 @@ final class DeepgramLanguageTests: XCTestCase {
         XCTAssertTrue(TranscriptionProvider.elevenLabs.languageOptions.contains(.zulu))
         XCTAssertFalse(TranscriptionProvider.elevenLabs.languageOptions.contains(.englishBritish))
         XCTAssertFalse(TranscriptionProvider.elevenLabs.languageOptions.contains(.chineseCantonese))
+
+        XCTAssertTrue(TranscriptionProvider.muse.languageOptions.contains(.dutch))
+        XCTAssertTrue(TranscriptionProvider.muse.languageOptions.contains(.mandarinChinese))
+        XCTAssertFalse(TranscriptionProvider.muse.languageOptions.contains(.russian))
     }
 
     func testAutomaticLanguageCandidatesAreConfigurablePerProvider() {
         XCTAssertEqual(
             TranscriptionProvider.elevenLabs.defaultAutomaticLanguageCandidates,
+            [.dutch, .english]
+        )
+        XCTAssertEqual(
+            TranscriptionProvider.muse.defaultAutomaticLanguageCandidates,
             [.dutch, .english]
         )
         XCTAssertEqual(
@@ -27,6 +35,10 @@ final class DeepgramLanguageTests: XCTestCase {
             [.english, .russian]
         )
         XCTAssertTrue(TranscriptionProvider.deepgram.automaticLanguageCandidateOptions.isEmpty)
+        XCTAssertEqual(
+            TranscriptionProvider.muse.normalizedAutomaticLanguageCandidates([.russian, .english, .dutch]),
+            [.dutch, .english]
+        )
         XCTAssertEqual(
             TranscriptionProvider.elevenLabs.automaticLanguageHelpText,
             "Automatic uses the selected languages only."
@@ -48,6 +60,14 @@ final class DeepgramLanguageTests: XCTestCase {
         )
         XCTAssertEqual(
             TranscriptionProvider.elevenLabs.normalizedLanguage(.chineseMandarinTraditional),
+            .mandarinChinese
+        )
+        XCTAssertEqual(
+            TranscriptionProvider.muse.normalizedLanguage(.englishBritish),
+            .english
+        )
+        XCTAssertEqual(
+            TranscriptionProvider.muse.normalizedLanguage(.chineseCantonese),
             .mandarinChinese
         )
     }

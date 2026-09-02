@@ -156,6 +156,11 @@ final class AppState: ObservableObject {
         set { settingsStore.elevenLabsApiKey = newValue }
     }
 
+    var museApiKey: String {
+        get { settingsStore.museApiKey }
+        set { settingsStore.museApiKey = newValue }
+    }
+
     var shortcuts: [ShortcutConfig] {
         get { settingsStore.shortcuts }
         _modify { yield &settingsStore.shortcuts }

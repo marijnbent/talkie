@@ -21,6 +21,29 @@ final class TranscriptionStreamRouterTests: XCTestCase {
         XCTAssertEqual(elevenLabs.sentAudio, [audio])
     }
 
+    func testRoutesMuseRecordingToMuse() {
+        let deepgram = FakeTranscriptionStreamPort()
+        let elevenLabs = FakeTranscriptionStreamPort()
+        let muse = FakeTranscriptionStreamPort()
+        let router = TranscriptionStreamRouter(
+            deepgram: deepgram,
+            elevenLabs: elevenLabs,
+            muse: muse
+        )
+        let settings = TranscriptionProviderSettings(provider: .muse, apiKey: "muse-key")
+
+        router.connect(
+            settings: settings,
+            format: AudioStreamFormat(sampleRate: 48_000, channels: 2),
+            language: .dutch
+        )
+
+        XCTAssertTrue(deepgram.connectCalls.isEmpty)
+        XCTAssertTrue(elevenLabs.connectCalls.isEmpty)
+        XCTAssertEqual(muse.connectCalls.first?.provider, .muse)
+        XCTAssertEqual(muse.connectCalls.first?.apiKey, "muse-key")
+    }
+
     func testIgnoresEventsFromAnInactiveProvider() {
         let deepgram = FakeTranscriptionStreamPort()
         let elevenLabs = FakeTranscriptionStreamPort()

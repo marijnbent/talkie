@@ -81,6 +81,8 @@ struct GeneralSettingsView: View {
                     SecureField("Deepgram API Key", text: viewModel.binding(for: \.apiKey))
                 case .elevenLabs:
                     SecureField("ElevenLabs API Key", text: viewModel.binding(for: \.elevenLabsApiKey))
+                case .muse:
+                    SecureField("Muse API Key", text: viewModel.binding(for: \.museApiKey))
                 }
 
                 Picker("Current language", selection: viewModel.languageBinding()) {

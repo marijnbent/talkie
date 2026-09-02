@@ -145,6 +145,35 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
 
     static let defaultStarredLanguages: [DeepgramLanguage] = [.automatic, .english]
 
+    static let museLanguages: [DeepgramLanguage] = [
+        .automatic,
+        .arabic,
+        .bengali,
+        .dutch,
+        .english,
+        .french,
+        .german,
+        .hebrew,
+        .hindi,
+        .indonesian,
+        .italian,
+        .japanese,
+        .kannada,
+        .korean,
+        .malay,
+        .mandarinChinese,
+        .marathi,
+        .polish,
+        .portuguese,
+        .spanish,
+        .tagalog,
+        .tamil,
+        .telugu,
+        .thai,
+        .turkish,
+        .vietnamese,
+    ]
+
     var id: String { rawValue }
 
     var sortsBeforeAllOtherLanguages: Bool {
@@ -158,6 +187,11 @@ enum DeepgramLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
         default:
             return rawValue
         }
+    }
+
+    var museLanguageName: String? {
+        guard self != .automatic else { return nil }
+        return displayName
     }
 
     var menuBarAbbreviation: String {

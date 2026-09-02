@@ -5,6 +5,7 @@ final class SettingsStore: ObservableObject {
     static let apiKeyKey = "Talkie.ApiKey"
     static let transcriptionProviderKey = "Talkie.TranscriptionProvider"
     static let elevenLabsApiKeyKey = "Talkie.ElevenLabsApiKey"
+    static let museApiKeyKey = "Talkie.MuseApiKey"
     static let deepgramLanguageKey = "Talkie.DeepgramLanguage"
     static let automaticLanguageCandidatesKey = "Talkie.AutomaticLanguageCandidates"
     static let starredDeepgramLanguagesKey = "Talkie.StarredDeepgramLanguages"
@@ -44,6 +45,12 @@ final class SettingsStore: ObservableObject {
     @Published var elevenLabsApiKey: String {
         didSet {
             defaults.set(elevenLabsApiKey, forKey: Self.elevenLabsApiKeyKey)
+        }
+    }
+
+    @Published var museApiKey: String {
+        didSet {
+            defaults.set(museApiKey, forKey: Self.museApiKeyKey)
         }
     }
 
@@ -214,6 +221,8 @@ final class SettingsStore: ObservableObject {
             apiKey
         case .elevenLabs:
             elevenLabsApiKey
+        case .muse:
+            museApiKey
         }
         return TranscriptionProviderSettings(
             provider: transcriptionProvider,
@@ -233,6 +242,7 @@ final class SettingsStore: ObservableObject {
         transcriptionProvider = defaults.string(forKey: Self.transcriptionProviderKey)
             .flatMap(TranscriptionProvider.init(rawValue:)) ?? .deepgram
         elevenLabsApiKey = defaults.string(forKey: Self.elevenLabsApiKeyKey) ?? ""
+        museApiKey = defaults.string(forKey: Self.museApiKeyKey) ?? ""
         escToCancelRecording = (defaults.object(forKey: Self.escToCancelRecordingKey) as? Bool) ?? true
         playSoundEffects = (defaults.object(forKey: Self.playSoundEffectsKey) as? Bool) ?? false
         muteMediaDuringRecording = (defaults.object(forKey: Self.muteMediaDuringRecordingKey) as? Bool) ?? false

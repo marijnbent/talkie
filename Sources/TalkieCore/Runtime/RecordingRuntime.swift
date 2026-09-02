@@ -500,9 +500,7 @@ final class RecordingRuntime {
 
     private func startFinalizeWatchdog() {
         cancelFinalizeWatchdog()
-        let timeout = pendingTranscriptionSettings?.provider == .elevenLabs
-            ? max(finalizeWatchdogTimeout, 3.5)
-            : finalizeWatchdogTimeout
+        let timeout = max(finalizeWatchdogTimeout, 3.5)
         finalizeWatchdogTask = scheduler.schedule(after: timeout) { [weak self] in
             Task { @MainActor in
                 self?.finalizeIfNeeded()
@@ -552,6 +550,9 @@ final class RecordingRuntime {
         guard currentRecordingFormat != nil else { return }
         guard reconnectTask == nil else { return }
 
+        if pendingTranscriptionError == nil {
+            handleTranscriptionError(reason)
+        }
         onFinalizeLatestInterim?()
 
         let provider = pendingTranscriptionSettings?.provider.displayName ?? "Transcription"

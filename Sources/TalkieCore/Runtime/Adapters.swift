@@ -150,6 +150,55 @@ final class ElevenLabsClientAdapter: TranscriptionStreamPort, @unchecked Sendabl
     }
 }
 
+final class MuseClientAdapter: TranscriptionStreamPort, @unchecked Sendable {
+    var onTranscriptEvent: ((String, Bool) -> Void)?
+    var onLog: ((String, LogLevel) -> Void)?
+    var onTranscriptionError: ((String) -> Void)?
+    var onConnectionDropped: ((String) -> Void)?
+
+    private lazy var client: MuseClient = {
+        MuseClient(
+            onTranscriptEvent: { [weak self] text, isFinal in
+                self?.onTranscriptEvent?(text, isFinal)
+            },
+            onLog: { [weak self] message, level in
+                self?.onLog?(message, level)
+            },
+            onTranscriptionError: { [weak self] message in
+                self?.onTranscriptionError?(message)
+            },
+            onConnectionDropped: { [weak self] reason in
+                self?.onConnectionDropped?(reason)
+            }
+        )
+    }()
+
+    func connect(
+        settings: TranscriptionProviderSettings,
+        format: AudioStreamFormat,
+        language: DeepgramLanguage
+    ) {
+        client.connect(
+            apiKey: settings.apiKey,
+            format: format,
+            language: language,
+            automaticLanguageCandidates: settings.automaticLanguageCandidates
+        )
+    }
+
+    func sendAudio(data: Data) {
+        client.sendAudio(data: data)
+    }
+
+    func closeStream(onClosed: @escaping () -> Void) {
+        client.closeStream(onClosed: onClosed)
+    }
+
+    func disconnect() {
+        client.disconnect()
+    }
+}
+
 /// Keeps one provider active for the full recording session and forwards its events.
 final class TranscriptionStreamRouter: TranscriptionStreamPort, @unchecked Sendable {
     var onTranscriptEvent: ((String, Bool) -> Void)?
@@ -159,18 +208,22 @@ final class TranscriptionStreamRouter: TranscriptionStreamPort, @unchecked Senda
 
     private let deepgram: TranscriptionStreamPort
     private let elevenLabs: TranscriptionStreamPort
+    private let muse: TranscriptionStreamPort
     private let lock = NSLock()
     private var activeProvider: TranscriptionProvider?
     private var activeStream: TranscriptionStreamPort?
 
     init(
         deepgram: TranscriptionStreamPort = DeepgramClientAdapter(),
-        elevenLabs: TranscriptionStreamPort = ElevenLabsClientAdapter()
+        elevenLabs: TranscriptionStreamPort = ElevenLabsClientAdapter(),
+        muse: TranscriptionStreamPort = MuseClientAdapter()
     ) {
         self.deepgram = deepgram
         self.elevenLabs = elevenLabs
+        self.muse = muse
         wire(deepgram, provider: .deepgram)
         wire(elevenLabs, provider: .elevenLabs)
+        wire(muse, provider: .muse)
     }
 
     func connect(
@@ -218,6 +271,8 @@ final class TranscriptionStreamRouter: TranscriptionStreamPort, @unchecked Senda
             return deepgram
         case .elevenLabs:
             return elevenLabs
+        case .muse:
+            return muse
         }
     }
 

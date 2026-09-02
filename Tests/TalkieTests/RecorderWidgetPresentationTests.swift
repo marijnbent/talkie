@@ -41,6 +41,17 @@ final class RecorderWidgetPresentationTests: XCTestCase {
         XCTAssertGreaterThan(RecorderWidgetMeter.visibleLevel(for: 0.2), 0)
     }
 
+    func testMeterSmoothingApproachesChangesWithoutOvershooting() {
+        let risingLevel = RecorderWidgetMeter.smoothedLevel(current: 0, target: 1)
+        let fallingLevel = RecorderWidgetMeter.smoothedLevel(current: 1, target: 0)
+
+        XCTAssertGreaterThan(risingLevel, 0)
+        XCTAssertLessThan(risingLevel, 1)
+        XCTAssertGreaterThan(fallingLevel, 0)
+        XCTAssertLessThan(fallingLevel, 1)
+        XCTAssertEqual(RecorderWidgetMeter.smoothedLevel(current: 0.998, target: 1), 1)
+    }
+
     func testTranscriptWordPositionsStayStableAcrossCorrectionsAndAppends() {
         let initial = RecorderWidgetTranscriptWords.project("hello world")
         let corrected = RecorderWidgetTranscriptWords.project("hello there")

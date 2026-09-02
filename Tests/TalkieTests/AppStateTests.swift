@@ -6,6 +6,7 @@ final class AppStateTests: XCTestCase {
     private let apiKeyDefaultsKey = "Talkie.ApiKey"
     private let transcriptionProviderDefaultsKey = "Talkie.TranscriptionProvider"
     private let elevenLabsApiKeyDefaultsKey = "Talkie.ElevenLabsApiKey"
+    private let museApiKeyDefaultsKey = "Talkie.MuseApiKey"
     private let languageDefaultsKey = "Talkie.DeepgramLanguage"
     private let automaticLanguageCandidatesDefaultsKey = "Talkie.AutomaticLanguageCandidates"
     private let starredLanguagesDefaultsKey = "Talkie.StarredDeepgramLanguages"
@@ -23,6 +24,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: apiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: transcriptionProviderDefaultsKey)
         UserDefaults.standard.removeObject(forKey: elevenLabsApiKeyDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: museApiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: languageDefaultsKey)
         UserDefaults.standard.removeObject(forKey: automaticLanguageCandidatesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: starredLanguagesDefaultsKey)
@@ -40,6 +42,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: apiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: transcriptionProviderDefaultsKey)
         UserDefaults.standard.removeObject(forKey: elevenLabsApiKeyDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: museApiKeyDefaultsKey)
         UserDefaults.standard.removeObject(forKey: languageDefaultsKey)
         UserDefaults.standard.removeObject(forKey: automaticLanguageCandidatesDefaultsKey)
         UserDefaults.standard.removeObject(forKey: starredLanguagesDefaultsKey)
@@ -140,6 +143,25 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(
             restored.settingsStore.transcriptionProviderSettings,
             TranscriptionProviderSettings(provider: .elevenLabs, apiKey: "eleven-key")
+        )
+    }
+
+    func testMuseProviderAndKeyPersistSeparately() {
+        let state = AppState()
+        state.apiKey = "deepgram-key"
+        state.elevenLabsApiKey = "eleven-key"
+        state.museApiKey = "muse-key"
+        state.transcriptionProvider = .muse
+
+        let restored = AppState()
+
+        XCTAssertEqual(restored.transcriptionProvider, .muse)
+        XCTAssertEqual(restored.apiKey, "deepgram-key")
+        XCTAssertEqual(restored.elevenLabsApiKey, "eleven-key")
+        XCTAssertEqual(restored.museApiKey, "muse-key")
+        XCTAssertEqual(
+            restored.settingsStore.transcriptionProviderSettings,
+            TranscriptionProviderSettings(provider: .muse, apiKey: "muse-key")
         )
     }
 

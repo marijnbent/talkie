@@ -16,7 +16,7 @@ final class DeepgramClient: NSObject, @unchecked Sendable {
     private var decodeFailureCount = 0
     private var binaryDecodeFailureCount = 0
 
-    private let closeTimeoutSeconds: TimeInterval = 1.0
+    private let closeTimeoutSeconds: TimeInterval = 3.0
 
     init(
         onTranscriptEvent: ((String, Bool) -> Void)? = nil,
@@ -283,7 +283,7 @@ final class DeepgramClient: NSObject, @unchecked Sendable {
 
         isConnected = false
         self.task = nil
-        reportTranscriptionError(message)
+        onLog?(message, .error)
         onConnectionDropped?(message)
     }
 

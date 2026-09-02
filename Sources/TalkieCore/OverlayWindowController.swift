@@ -247,12 +247,12 @@ final class OverlayWindowController {
     }
 
     private var compactOverlayWidth: CGFloat {
-        let baseWidth: CGFloat = sessionState.overlayAppIcon == nil ? 80 : 106
+        let baseWidth: CGFloat = sessionState.overlayAppIcon == nil ? 74 : 100
         return settingsStore.showLanguageInRecorderWidget ? baseWidth + 32 : baseWidth
     }
 
     private var overlayHeight: CGFloat {
-        presentation.showsStreamedText ? 58 : 34
+        presentation.showsStreamedText ? 68 : 42
     }
 
     private var presentation: RecorderWidgetPresentation {
