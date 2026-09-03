@@ -35,6 +35,8 @@ final class TranscriptHistoryStore: TranscriptHistoryPersisting {
                     enhancementError: entry.enhancementError,
                     promptName: entry.promptName,
                     enhancementPromptText: entry.enhancementPromptText,
+                    enhancementProvider: entry.enhancementProvider,
+                    enhancementModel: entry.enhancementModel,
                     rawRecordingFileURL: nil,
                     transcriptionLanguage: entry.transcriptionLanguage,
                     usedActiveAppPrompt: entry.usedActiveAppPrompt

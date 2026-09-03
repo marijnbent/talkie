@@ -197,7 +197,11 @@ final class PasteRuntimeTests: XCTestCase {
             pasteboard: pasteboard,
             pasteVerification: pasteVerification,
             scheduler: scheduler,
-            enhancer: { transcript, _, _ in transcript.uppercased() }
+            enhancer: { transcript, _, settings in
+                XCTAssertEqual(settings.provider, .openRouter)
+                XCTAssertEqual(settings.model, "google/gemini-2.5-flash")
+                return transcript.uppercased()
+            }
         )
 
         var emittedEvents: [PasteRuntimeEvent] = []
@@ -210,12 +214,18 @@ final class PasteRuntimeTests: XCTestCase {
                 enhancementPrompt: EnhancementPromptContext(
                     name: "Slack tidy",
                     content: "clean this",
-                    isForActiveApp: true
+                    isForActiveApp: true,
+                    provider: .openRouter,
+                    model: "google/gemini-2.5-flash"
                 ),
                 transcriptionError: nil
             ),
             settings: PasteRuntimeSettings(
-                enhancement: celerisSettings(apiKey: "ck-test"),
+                enhancement: EnhancementProviderSettings(
+                    provider: .openRouter,
+                    apiKey: "sk-test",
+                    model: "google/gemini-2.5-flash"
+                ),
                 playSoundEffects: false,
                 restoreClipboardAfterPaste: false
             )
@@ -224,6 +234,8 @@ final class PasteRuntimeTests: XCTestCase {
         let historyEntry = emittedEvents.compactMap(historyEntry).first
         XCTAssertEqual(historyEntry?.promptName, "Slack tidy")
         XCTAssertEqual(historyEntry?.enhancementPromptText, "clean this")
+        XCTAssertEqual(historyEntry?.enhancementProvider, .openRouter)
+        XCTAssertEqual(historyEntry?.enhancementModel, "google/gemini-2.5-flash")
         XCTAssertEqual(historyEntry?.usedActiveAppPrompt, true)
     }
 

@@ -3,27 +3,20 @@ import Foundation
 enum CelerisClient {
     static let model = "celeris-1"
 
-    private static let endpoint = URL(string: "https://inference.celeris.ai/celeris-1/v1/chat/completions")!
     private static let timeoutInterval: TimeInterval = 30
 
-    static func enhance(transcript: String, prompt: String, apiKey: String) async throws -> String {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = timeoutInterval
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let content = "\(prompt)\n\n<transcription>\(transcript)</transcription>"
-        let body: [String: Any] = [
-            "model": model,
-            "messages": [
-                ["role": "user", "content": content]
-            ],
-            "max_tokens": 2_048,
-            "temperature": 0
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
+    static func enhance(
+        transcript: String,
+        prompt: String,
+        apiKey: String,
+        model: String = model
+    ) async throws -> String {
+        let request = try makeRequest(
+            transcript: transcript,
+            prompt: prompt,
+            apiKey: apiKey,
+            model: model
+        )
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -45,6 +38,36 @@ enum CelerisClient {
         }
     }
 
+    static func makeRequest(
+        transcript: String,
+        prompt: String,
+        apiKey: String,
+        model: String
+    ) throws -> URLRequest {
+        let model = model.trimmed
+        guard !model.isEmpty,
+              let endpoint = URL(string: "https://inference.celeris.ai/\(model)/v1/chat/completions") else {
+            throw CelerisError.invalidModel
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeoutInterval
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let content = "\(prompt)\n\n<transcription>\(transcript)</transcription>"
+        let body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "user", "content": content]
+            ],
+            "max_tokens": 2_048,
+            "temperature": 0
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     private static func preview(_ text: String, maxLength: Int = 400) -> String {
         let normalized = text.replacingOccurrences(of: "\n", with: " ").trimmed
         guard normalized.count > maxLength else { return normalized }
@@ -53,6 +76,7 @@ enum CelerisClient {
 }
 
 enum CelerisError: LocalizedError {
+    case invalidModel
     case invalidResponse
     case httpError(statusCode: Int, body: String)
     case noContent
@@ -60,6 +84,8 @@ enum CelerisError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .invalidModel:
+            return "Invalid Celeris model."
         case .invalidResponse:
             return "Invalid response from Celeris."
         case .httpError(let statusCode, let body):

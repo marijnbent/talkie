@@ -35,6 +35,32 @@ private struct PromptEditorSheet: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Provider")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Picker("Provider", selection: $prompt.provider) {
+                        ForEach(EnhancementProvider.allCases) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: prompt.provider) { provider in
+                        prompt.model = provider.defaultModel
+                    }
+                }
+                .frame(width: 160, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Model")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    TextField("Model ID", text: $prompt.model)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Instructions")
                     .font(.subheadline.weight(.medium))
@@ -66,7 +92,7 @@ private struct PromptEditorSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 560, height: 470)
+        .frame(width: 560, height: 550)
     }
 }
 
@@ -108,29 +134,18 @@ struct EnhancementsSettingsView: View {
     @ViewBuilder
     private var providerSection: some View {
         Section {
-            Picker("Provider", selection: viewModel.binding(for: \.enhancementProvider)) {
-                ForEach(EnhancementProvider.allCases) { provider in
-                    Text(provider.displayName).tag(provider)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            switch viewModel.enhancementProvider {
-            case .openRouter:
+            LabeledContent("OpenRouter") {
                 SecureField("API Key", text: viewModel.binding(for: \.openRouterApiKey))
-                TextField("Model", text: viewModel.binding(for: \.openRouterModel))
-            case .celeris:
+                    .frame(width: 320)
+            }
+            LabeledContent("Celeris") {
                 SecureField("API Key", text: viewModel.binding(for: \.celerisApiKey))
+                    .frame(width: 320)
             }
         } header: {
-            Text("Provider")
+            Text("Providers")
         } footer: {
-            switch viewModel.enhancementProvider {
-            case .openRouter:
-                Text("Suggested model: `inception/mercury-2`.")
-            case .celeris:
-                Text("Celeris uses the `celeris-1` model.")
-            }
+            Text("Add each API key once. Choose the provider and model in each prompt.")
         }
     }
 
@@ -150,6 +165,9 @@ struct EnhancementsSettingsView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                            Text("\(prompt.provider.displayName) · \(prompt.model.trimmed.isEmpty ? "No model" : prompt.model.trimmed)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             Text(viewModel.promptUsageSummary(for: prompt.id))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)

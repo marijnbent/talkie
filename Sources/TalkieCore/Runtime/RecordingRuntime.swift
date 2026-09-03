@@ -10,6 +10,22 @@ struct EnhancementPromptContext: Equatable {
     let name: String
     let content: String
     let isForActiveApp: Bool
+    let provider: EnhancementProvider
+    let model: String
+
+    init(
+        name: String,
+        content: String,
+        isForActiveApp: Bool,
+        provider: EnhancementProvider = .openRouter,
+        model: String = EnhancementProvider.openRouter.defaultModel
+    ) {
+        self.name = name
+        self.content = content
+        self.isForActiveApp = isForActiveApp
+        self.provider = provider
+        self.model = model
+    }
 }
 
 struct RecordingFinalization {

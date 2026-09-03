@@ -212,8 +212,44 @@ struct PromptConfig: Codable, Identifiable, Equatable {
     var id: UUID
     var name: String
     var content: String
+    var provider: EnhancementProvider
+    var model: String
 
-    static func makeDefault() -> PromptConfig {
+    init(
+        id: UUID,
+        name: String,
+        content: String,
+        provider: EnhancementProvider = .openRouter,
+        model: String = EnhancementProvider.openRouter.defaultModel
+    ) {
+        self.id = id
+        self.name = name
+        self.content = content
+        self.provider = provider
+        self.model = model
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case content
+        case provider
+        case model
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        content = try container.decode(String.self, forKey: .content)
+        provider = try container.decodeIfPresent(EnhancementProvider.self, forKey: .provider) ?? .openRouter
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? provider.defaultModel
+    }
+
+    static func makeDefault(
+        provider: EnhancementProvider = .openRouter,
+        model: String? = nil
+    ) -> PromptConfig {
         PromptConfig(
             id: UUID(),
             name: "Clean up",
@@ -227,7 +263,9 @@ struct PromptConfig: Codable, Identifiable, Equatable {
 
             Return only the cleaned transcription as plain text. No explanations, no quotes, no HTML tags, \
             no markdown, no preamble, no closing remarks. Just the text.
-            """
+            """,
+            provider: provider,
+            model: model ?? provider.defaultModel
         )
     }
 }

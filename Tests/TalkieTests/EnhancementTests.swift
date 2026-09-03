@@ -35,27 +35,61 @@ final class EnhancementTests: XCTestCase {
 
     // MARK: - Provider Credentials
 
-    func testEnhancementProviderDefaultsToOpenRouter() {
-        let state = AppState()
-        XCTAssertEqual(state.enhancementProvider, .openRouter)
+    func testNewPromptDefaultsToOpenRouter() {
+        let prompt = PromptConfig.makeDefault()
+        XCTAssertEqual(prompt.provider, .openRouter)
+        XCTAssertEqual(prompt.model, EnhancementProvider.openRouter.defaultModel)
     }
 
-    func testEnhancementProviderPersists() {
+    func testPromptProviderAndModelPersist() {
         let state = AppState()
-        state.enhancementProvider = .celeris
+        state.prompts = [
+            PromptConfig(
+                id: UUID(),
+                name: "Fast cleanup",
+                content: "Clean this",
+                provider: .celeris,
+                model: "celeris-next"
+            )
+        ]
 
         let restored = AppState()
-        XCTAssertEqual(restored.enhancementProvider, .celeris)
+        XCTAssertEqual(restored.prompts.first?.provider, .celeris)
+        XCTAssertEqual(restored.prompts.first?.model, "celeris-next")
+    }
+
+    func testOldPromptMigratesCurrentProviderAndModel() throws {
+        let promptID = UUID()
+        let data = try JSONSerialization.data(withJSONObject: [[
+            "id": promptID.uuidString,
+            "name": "Existing prompt",
+            "content": "Clean this"
+        ]])
+        UserDefaults.standard.set(data, forKey: promptsKey)
+        UserDefaults.standard.set(EnhancementProvider.openRouter.rawValue, forKey: enhancementProviderKey)
+        UserDefaults.standard.set("anthropic/claude-sonnet-4.5", forKey: openRouterModelKey)
+
+        let restored = AppState()
+
+        XCTAssertEqual(restored.prompts.first?.id, promptID)
+        XCTAssertEqual(restored.prompts.first?.provider, .openRouter)
+        XCTAssertEqual(restored.prompts.first?.model, "anthropic/claude-sonnet-4.5")
     }
 
     func testOpenRouterCredentialsRequireApiKeyAndModel() {
-        let state = AppState()
-        state.enhancementProvider = .openRouter
-        state.openRouterApiKey = "sk-test"
-        XCTAssertFalse(state.hasEnhancementCredentials)
+        let settings = SettingsStore()
+        settings.openRouterApiKey = "sk-test"
+        XCTAssertEqual(
+            settings.enhancementProviderSettings(provider: .openRouter, model: "").missingCredential,
+            "model"
+        )
 
-        state.openRouterModel = "openai/gpt-4o-mini"
-        XCTAssertTrue(state.hasEnhancementCredentials)
+        XCTAssertNil(
+            settings.enhancementProviderSettings(
+                provider: .openRouter,
+                model: "openai/gpt-4o-mini"
+            ).missingCredential
+        )
     }
 
     func testCelerisApiKeyDefaultsToEmpty() {
@@ -64,12 +98,23 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testCelerisCredentialsRequireApiKey() {
-        let state = AppState()
-        state.enhancementProvider = .celeris
-        XCTAssertFalse(state.hasEnhancementCredentials)
+        let settings = SettingsStore()
+        let prompt = PromptConfig.makeDefault(provider: .celeris)
+        XCTAssertEqual(
+            settings.enhancementProviderSettings(
+                provider: prompt.provider,
+                model: prompt.model
+            ).missingCredential,
+            "API key"
+        )
 
-        state.celerisApiKey = "ck-test"
-        XCTAssertTrue(state.hasEnhancementCredentials)
+        settings.celerisApiKey = "ck-test"
+        XCTAssertNil(
+            settings.enhancementProviderSettings(
+                provider: prompt.provider,
+                model: prompt.model
+            ).missingCredential
+        )
     }
 
     func testCelerisApiKeyPersists() {
@@ -181,7 +226,13 @@ final class EnhancementTests: XCTestCase {
 
     func testResolvedEnhancementPromptUsesDefaultPromptMetadata() {
         let state = AppState()
-        let prompt = PromptConfig(id: UUID(), name: "Clean up", content: "clean this")
+        let prompt = PromptConfig(
+            id: UUID(),
+            name: "Clean up",
+            content: "clean this",
+            provider: .celeris,
+            model: "celeris-next"
+        )
         state.prompts = [prompt]
         state.shortcuts[0].promptID = prompt.id
 
@@ -190,6 +241,8 @@ final class EnhancementTests: XCTestCase {
         XCTAssertEqual(resolved?.name, "Clean up")
         XCTAssertEqual(resolved?.content, "clean this")
         XCTAssertEqual(resolved?.isForActiveApp, false)
+        XCTAssertEqual(resolved?.provider, .celeris)
+        XCTAssertEqual(resolved?.model, "celeris-next")
     }
 
     func testResolvedEnhancementPromptUsesAppOverrideMetadata() {
@@ -287,6 +340,20 @@ final class EnhancementTests: XCTestCase {
         XCTAssertEqual(error.errorDescription, "Celeris returned no content.")
     }
 
+    func testCelerisRequestUsesSelectedModel() throws {
+        let request = try CelerisClient.makeRequest(
+            transcript: "Raw text",
+            prompt: "Clean it",
+            apiKey: "ck-test",
+            model: "celeris-next"
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(request.url?.absoluteString, "https://inference.celeris.ai/celeris-next/v1/chat/completions")
+        XCTAssertEqual(json["model"] as? String, "celeris-next")
+    }
+
     func testOpenRouterErrorInvalidResponseDescription() {
         let error = OpenRouterError.invalidResponse
         XCTAssertEqual(error.errorDescription, "Invalid response from OpenRouter.")
@@ -305,6 +372,14 @@ final class EnhancementTests: XCTestCase {
         state.prompts.append(prompt)
         state.shortcuts[0].promptID = prompt.id
         XCTAssertNotNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
-        XCTAssertFalse(state.hasEnhancementCredentials)
+
+        let settings = SettingsStore()
+        XCTAssertEqual(
+            settings.enhancementProviderSettings(
+                provider: prompt.provider,
+                model: prompt.model
+            ).missingCredential,
+            "API key"
+        )
     }
 }

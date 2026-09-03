@@ -47,7 +47,9 @@ final class PromptRoutingService {
         return EnhancementPromptContext(
             name: selection.prompt.displayName,
             content: selection.prompt.content,
-            isForActiveApp: selection.isForActiveApp
+            isForActiveApp: selection.isForActiveApp,
+            provider: selection.prompt.provider,
+            model: selection.prompt.model.trimmed
         )
     }
 
@@ -132,7 +134,9 @@ final class PromptRoutingService {
     static func migrateLegacyEnhancementPromptsIfNeeded(
         defaults: UserDefaults,
         shortcuts: inout [ShortcutConfig],
-        prompts: inout [PromptConfig]
+        prompts: inout [PromptConfig],
+        provider: EnhancementProvider,
+        model: String
     ) {
         guard let data = defaults.data(forKey: SettingsStore.legacyEnhancementPromptsKey),
               let legacyPrompts = try? JSONDecoder().decode([String: String].self, from: data),
@@ -147,7 +151,13 @@ final class PromptRoutingService {
             let trimmed = content.trimmed
             guard !trimmed.isEmpty else { continue }
 
-            let prompt = PromptConfig(id: UUID(), name: "Migrated Prompt", content: trimmed)
+            let prompt = PromptConfig(
+                id: UUID(),
+                name: "Migrated Prompt",
+                content: trimmed,
+                provider: provider,
+                model: model
+            )
             migratedPrompts.append(prompt)
             promptIDByShortcutID[shortcutID] = prompt.id
         }

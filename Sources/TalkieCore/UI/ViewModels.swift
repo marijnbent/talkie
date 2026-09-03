@@ -304,7 +304,6 @@ final class EnhancementsSettingsViewModel: ObservableObject {
 
     var prompts: [PromptConfig] { settingsStore.prompts }
     var shortcuts: [ShortcutConfig] { settingsStore.shortcuts }
-    var enhancementProvider: EnhancementProvider { settingsStore.enhancementProvider }
 
     func binding<Value>(for keyPath: ReferenceWritableKeyPath<SettingsStore, Value>) -> Binding<Value> {
         Binding(
@@ -334,7 +333,11 @@ final class EnhancementsSettingsViewModel: ObservableObject {
     }
 
     func addPrompt() -> PromptConfig {
-        let prompt = PromptConfig.makeDefault()
+        let previousPrompt = settingsStore.prompts.last
+        let prompt = PromptConfig.makeDefault(
+            provider: previousPrompt?.provider ?? .openRouter,
+            model: previousPrompt?.model
+        )
         settingsStore.prompts.append(prompt)
         return prompt
     }
@@ -498,8 +501,10 @@ final class HistoryViewModel: ObservableObject {
         guard entry.canRetryEnhancement else { return }
         guard beginRetry(for: entry.id, status: .enhancing) else { return }
         retryingEntryIDs.insert(entry.id)
+        let providerSettings = settingsStore.enhancementProviderSettings(for: entry)
         sessionState.addLog(
-            "Retrying enhancement from history (model: \(settingsStore.enhancementProviderSettings.model)).",
+            "Retrying enhancement from history " +
+                "(provider: \(providerSettings.provider.displayName), model: \(providerSettings.model)).",
             level: .info
         )
 
@@ -618,6 +623,8 @@ final class HistoryViewModel: ObservableObject {
                 enhancementError: enhancementError,
                 promptName: current.promptName,
                 enhancementPromptText: current.enhancementPromptText,
+                enhancementProvider: current.enhancementProvider,
+                enhancementModel: current.enhancementModel,
                 rawRecordingFileURL: current.rawRecordingFileURL,
                 transcriptionLanguage: transcriptionLanguage ?? current.transcriptionLanguage,
                 usedActiveAppPrompt: current.usedActiveAppPrompt
@@ -655,7 +662,7 @@ final class HistoryViewModel: ObservableObject {
             return (nil, nil)
         }
 
-        let providerSettings = settingsStore.enhancementProviderSettings
+        let providerSettings = settingsStore.enhancementProviderSettings(for: entry)
         if let missing = providerSettings.missingCredential {
             let reason = "\(providerSettings.provider.displayName) \(missing) is not set."
             sessionState.addLog("History enhancement retry skipped: \(reason)", level: .warning)

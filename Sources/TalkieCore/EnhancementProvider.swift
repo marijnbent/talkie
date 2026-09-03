@@ -1,6 +1,6 @@
 import Foundation
 
-enum EnhancementProvider: String, CaseIterable, Identifiable, Sendable {
+enum EnhancementProvider: String, CaseIterable, Codable, Identifiable, Sendable {
     case openRouter
     case celeris
 
@@ -10,6 +10,13 @@ enum EnhancementProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .openRouter: "OpenRouter"
         case .celeris: "Celeris"
+        }
+    }
+
+    var defaultModel: String {
+        switch self {
+        case .openRouter: "inception/mercury-2"
+        case .celeris: CelerisClient.model
         }
     }
 }
@@ -23,7 +30,7 @@ struct EnhancementProviderSettings: Sendable {
         if apiKey.trimmed.isEmpty {
             return "API key"
         }
-        if provider == .openRouter && model.trimmed.isEmpty {
+        if model.trimmed.isEmpty {
             return "model"
         }
         return nil
@@ -48,7 +55,8 @@ enum EnhancementClient {
             return try await CelerisClient.enhance(
                 transcript: transcript,
                 prompt: prompt,
-                apiKey: settings.apiKey
+                apiKey: settings.apiKey,
+                model: settings.model
             )
         }
     }

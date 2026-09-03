@@ -218,6 +218,41 @@ final class HistoryViewModelTests: XCTestCase {
         XCTAssertEqual(call.apiKey, "eleven-key")
     }
 
+    func testRetryEnhancementUsesSavedProviderAndModel() async throws {
+        let defaults = makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+        defaults.set("celeris-key", forKey: SettingsStore.celerisApiKeyKey)
+
+        let entry = TranscriptHistoryEntry(
+            timestamp: Date(),
+            text: "Raw transcript",
+            enhancementPromptText: "Clean this",
+            enhancementProvider: .celeris,
+            enhancementModel: "celeris-next"
+        )
+        let sessionState = SessionState(initialTranscriptHistory: [entry])
+        let enhancer = EnhancerSpy()
+        let viewModel = HistoryViewModel(
+            settingsStore: SettingsStore(defaults: defaults),
+            sessionState: sessionState,
+            enhancer: { transcript, prompt, settings in
+                await enhancer.enhance(transcript: transcript, prompt: prompt, settings: settings)
+            }
+        )
+
+        viewModel.retryEnhancement(for: entry)
+        await waitForRetryToFinish(entry.id, in: viewModel)
+
+        let calls = await enhancer.calls()
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertEqual(call.provider, .celeris)
+        XCTAssertEqual(call.apiKey, "celeris-key")
+        XCTAssertEqual(call.model, "celeris-next")
+        XCTAssertEqual(sessionState.transcriptHistory.first?.enhancedText, "Enhanced transcript")
+        XCTAssertEqual(sessionState.transcriptHistory.first?.enhancementProvider, .celeris)
+        XCTAssertEqual(sessionState.transcriptHistory.first?.enhancementModel, "celeris-next")
+    }
+
     private func waitForRetryToFinish(
         _ entryID: UUID,
         in viewModel: HistoryViewModel
@@ -251,6 +286,8 @@ final class HistoryViewModelTests: XCTestCase {
         XCTAssertEqual(preserved.enhancementError, entry.enhancementError, file: file, line: line)
         XCTAssertEqual(preserved.promptName, entry.promptName, file: file, line: line)
         XCTAssertEqual(preserved.enhancementPromptText, entry.enhancementPromptText, file: file, line: line)
+        XCTAssertEqual(preserved.enhancementProvider, entry.enhancementProvider, file: file, line: line)
+        XCTAssertEqual(preserved.enhancementModel, entry.enhancementModel, file: file, line: line)
         XCTAssertEqual(preserved.rawRecordingFileURL, entry.rawRecordingFileURL, file: file, line: line)
         XCTAssertEqual(preserved.transcriptionLanguage, entry.transcriptionLanguage, file: file, line: line)
         XCTAssertEqual(preserved.usedActiveAppPrompt, entry.usedActiveAppPrompt, file: file, line: line)
@@ -318,6 +355,35 @@ private actor TranscriberSpy {
         case .failure:
             throw TranscriberTestError.failed
         }
+    }
+
+    func calls() -> [Call] {
+        recordedCalls
+    }
+}
+
+private actor EnhancerSpy {
+    struct Call: Sendable {
+        let provider: EnhancementProvider
+        let apiKey: String
+        let model: String
+    }
+
+    private var recordedCalls: [Call] = []
+
+    func enhance(
+        transcript: String,
+        prompt: String,
+        settings: EnhancementProviderSettings
+    ) -> String {
+        recordedCalls.append(
+            Call(
+                provider: settings.provider,
+                apiKey: settings.apiKey,
+                model: settings.model
+            )
+        )
+        return "Enhanced transcript"
     }
 
     func calls() -> [Call] {

@@ -104,6 +104,8 @@ final class SessionState: ObservableObject {
         enhancementError: String? = nil,
         promptName: String? = nil,
         enhancementPromptText: String? = nil,
+        enhancementProvider: EnhancementProvider? = nil,
+        enhancementModel: String? = nil,
         rawRecordingFileURL: URL? = nil,
         transcriptionLanguage: DeepgramLanguage? = nil,
         usedActiveAppPrompt: Bool = false,
@@ -118,6 +120,8 @@ final class SessionState: ObservableObject {
                 enhancementError: enhancementError,
                 promptName: promptName,
                 enhancementPromptText: enhancementPromptText,
+                enhancementProvider: enhancementProvider,
+                enhancementModel: enhancementModel,
                 rawRecordingFileURL: rawRecordingFileURL,
                 transcriptionLanguage: transcriptionLanguage,
                 usedActiveAppPrompt: usedActiveAppPrompt
@@ -133,6 +137,8 @@ final class SessionState: ObservableObject {
             enhancementError: enhancementError,
             promptName: promptName,
             enhancementPromptText: enhancementPromptText,
+            enhancementProvider: enhancementProvider,
+            enhancementModel: enhancementModel,
             rawRecordingFileURL: rawRecordingFileURL,
             transcriptionLanguage: transcriptionLanguage,
             usedActiveAppPrompt: usedActiveAppPrompt
@@ -245,6 +251,8 @@ struct TranscriptHistoryEntry: Codable, Identifiable {
     let enhancementError: String?
     let promptName: String?
     let enhancementPromptText: String?
+    let enhancementProvider: EnhancementProvider?
+    let enhancementModel: String?
     let rawRecordingFileURL: URL?
     let transcriptionLanguage: DeepgramLanguage?
     let usedActiveAppPrompt: Bool
@@ -258,6 +266,8 @@ struct TranscriptHistoryEntry: Codable, Identifiable {
         enhancementError: String? = nil,
         promptName: String? = nil,
         enhancementPromptText: String? = nil,
+        enhancementProvider: EnhancementProvider? = nil,
+        enhancementModel: String? = nil,
         rawRecordingFileURL: URL? = nil,
         transcriptionLanguage: DeepgramLanguage? = nil,
         usedActiveAppPrompt: Bool = false
@@ -270,6 +280,8 @@ struct TranscriptHistoryEntry: Codable, Identifiable {
         self.enhancementError = enhancementError
         self.promptName = promptName
         self.enhancementPromptText = enhancementPromptText
+        self.enhancementProvider = enhancementProvider
+        self.enhancementModel = enhancementModel
         self.rawRecordingFileURL = rawRecordingFileURL
         self.transcriptionLanguage = transcriptionLanguage
         self.usedActiveAppPrompt = usedActiveAppPrompt

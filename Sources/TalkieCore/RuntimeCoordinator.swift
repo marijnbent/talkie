@@ -233,7 +233,9 @@ final class RuntimeCoordinator {
                         transcriptionLanguage: finalization.transcriptionLanguage
                     ),
                     settings: PasteRuntimeSettings(
-                        enhancement: self.settingsStore.enhancementProviderSettings,
+                        enhancement: finalization.enhancementPrompt.map {
+                            self.settingsStore.enhancementProviderSettings(for: $0)
+                        },
                         playSoundEffects: self.settingsStore.playSoundEffects,
                         restoreClipboardAfterPaste: self.settingsStore.restoreClipboardAfterPaste
                     )

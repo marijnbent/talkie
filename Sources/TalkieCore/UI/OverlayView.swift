@@ -225,8 +225,6 @@ private struct StreamingTranscriptText: View {
     let text: String
     @State private var words: [RecorderWidgetTranscriptWord] = []
     @State private var entranceDelays: [Int: Double] = [:]
-    @State private var isReceivingSpeech = true
-    @State private var settleTask: Task<Void, Never>?
 
     private var layoutAnimation: Animation? {
         reduceMotion ? nil : .easeOut(duration: 0.12)
@@ -239,7 +237,6 @@ private struct StreamingTranscriptText: View {
                     word: word,
                     index: index,
                     wordCount: words.count,
-                    isReceivingSpeech: isReceivingSpeech,
                     delay: entranceDelays[word.id] ?? 0
                 )
             }
@@ -252,14 +249,9 @@ private struct StreamingTranscriptText: View {
         .accessibilityLabel(text)
         .onAppear {
             updateWords(from: text)
-            scheduleSettle()
         }
         .onChange(of: text) { updatedText in
             updateWords(from: updatedText)
-            scheduleSettle()
-        }
-        .onDisappear {
-            settleTask?.cancel()
         }
     }
 
@@ -271,25 +263,6 @@ private struct StreamingTranscriptText: View {
             (id, min(Double(index) * 0.025, 0.075))
         })
         words = updatedWords
-    }
-
-    private func scheduleSettle() {
-        settleTask?.cancel()
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
-            isReceivingSpeech = true
-        }
-        settleTask = Task { @MainActor in
-            do {
-                try await Task.sleep(
-                    nanoseconds: UInt64(RecorderWidgetTranscriptEmphasis.settleDelay * 1_000_000_000)
-                )
-            } catch {
-                return
-            }
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
-                isReceivingSpeech = false
-            }
-        }
     }
 }
 
@@ -325,16 +298,12 @@ private struct StreamingTranscriptWord: View {
     let word: RecorderWidgetTranscriptWord
     let index: Int
     let wordCount: Int
-    let isReceivingSpeech: Bool
     let delay: Double
     @State private var isVisible = false
-
-    private var isNewest: Bool {
-        index == wordCount - 1
-    }
+    @State private var isRecent = true
 
     private var textOpacity: Double {
-        if isReceivingSpeech {
+        if isRecent {
             return RecorderWidgetTranscriptEmphasis.activeOpacity(
                 distanceFromNewest: wordCount - index - 1
             )
@@ -346,13 +315,11 @@ private struct StreamingTranscriptWord: View {
         ZStack {
             Text(word.text)
                 .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .regular))
-                .opacity(isNewest && isReceivingSpeech ? 0 : 1)
+                .opacity(isRecent ? 0 : 1)
 
-            if isNewest {
-                Text(word.text)
-                    .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .medium))
-                    .opacity(isReceivingSpeech ? 1 : 0)
-            }
+            Text(word.text)
+                .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .medium))
+                .opacity(isRecent ? 1 : 0)
         }
         .foregroundStyle(Color.primary.opacity(textOpacity))
         .lineLimit(1)
@@ -374,6 +341,21 @@ private struct StreamingTranscriptWord: View {
         .onChange(of: reduceMotion) { shouldReduceMotion in
             if shouldReduceMotion {
                 isVisible = true
+            }
+        }
+        .task(id: word.text) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                isRecent = true
+            }
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(RecorderWidgetTranscriptEmphasis.settleDelay * 1_000_000_000)
+                )
+            } catch {
+                return
+            }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                isRecent = false
             }
         }
     }

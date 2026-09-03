@@ -62,21 +62,9 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    @Published var enhancementProvider: EnhancementProvider {
-        didSet {
-            defaults.set(enhancementProvider.rawValue, forKey: Self.enhancementProviderKey)
-        }
-    }
-
     @Published var openRouterApiKey: String {
         didSet {
             defaults.set(openRouterApiKey, forKey: Self.openRouterApiKeyKey)
-        }
-    }
-
-    @Published var openRouterModel: String {
-        didSet {
-            defaults.set(openRouterModel, forKey: Self.openRouterModelKey)
         }
     }
 
@@ -198,21 +186,36 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    var enhancementProviderSettings: EnhancementProviderSettings {
-        switch enhancementProvider {
+    func enhancementProviderSettings(
+        provider: EnhancementProvider,
+        model: String
+    ) -> EnhancementProviderSettings {
+        switch provider {
         case .openRouter:
             EnhancementProviderSettings(
                 provider: .openRouter,
                 apiKey: openRouterApiKey.trimmed,
-                model: openRouterModel.trimmed
+                model: model.trimmed
             )
         case .celeris:
             EnhancementProviderSettings(
                 provider: .celeris,
                 apiKey: celerisApiKey.trimmed,
-                model: CelerisClient.model
+                model: model.trimmed
             )
         }
+    }
+
+    func enhancementProviderSettings(for prompt: EnhancementPromptContext) -> EnhancementProviderSettings {
+        enhancementProviderSettings(provider: prompt.provider, model: prompt.model)
+    }
+
+    func enhancementProviderSettings(for entry: TranscriptHistoryEntry) -> EnhancementProviderSettings {
+        let provider = entry.enhancementProvider ?? legacyEnhancementProvider
+        let savedModel = (entry.enhancementModel?.trimmed)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let model = savedModel ?? legacyModel(for: provider)
+        return enhancementProviderSettings(provider: provider, model: model)
     }
 
     var transcriptionProviderSettings: TranscriptionProviderSettings {
@@ -231,9 +234,8 @@ final class SettingsStore: ObservableObject {
         )
     }
 
-    var hasEnhancementCredentials: Bool {
-        enhancementProviderSettings.missingCredential == nil
-    }
+    private let legacyEnhancementProvider: EnhancementProvider
+    private let legacyOpenRouterModel: String
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -288,22 +290,68 @@ final class SettingsStore: ObservableObject {
             shortcuts = [ShortcutConfig.makeDefault()]
         }
 
-        enhancementProvider = defaults.string(forKey: Self.enhancementProviderKey)
+        legacyEnhancementProvider = defaults.string(forKey: Self.enhancementProviderKey)
             .flatMap(EnhancementProvider.init(rawValue:)) ?? .openRouter
+        let savedOpenRouterModel = (defaults.string(forKey: Self.openRouterModelKey)?.trimmed)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        legacyOpenRouterModel = savedOpenRouterModel ?? EnhancementProvider.openRouter.defaultModel
         openRouterApiKey = defaults.string(forKey: Self.openRouterApiKeyKey) ?? ""
-        openRouterModel = defaults.string(forKey: Self.openRouterModelKey) ?? ""
         celerisApiKey = defaults.string(forKey: Self.celerisApiKeyKey) ?? ""
 
         if let data = defaults.data(forKey: Self.promptsKey),
            let decoded = try? JSONDecoder().decode([PromptConfig].self, from: data) {
-            prompts = decoded
+            prompts = Self.migratedPromptConfigurations(
+                decoded,
+                encodedData: data,
+                legacyProvider: legacyEnhancementProvider,
+                legacyOpenRouterModel: legacyOpenRouterModel
+            )
+            if prompts != decoded,
+               let migratedData = try? JSONEncoder().encode(prompts) {
+                defaults.set(migratedData, forKey: Self.promptsKey)
+            }
         } else {
             prompts = []
             PromptRoutingService.migrateLegacyEnhancementPromptsIfNeeded(
                 defaults: defaults,
                 shortcuts: &shortcuts,
-                prompts: &prompts
+                prompts: &prompts,
+                provider: legacyEnhancementProvider,
+                model: legacyModel(for: legacyEnhancementProvider)
             )
+        }
+    }
+
+    private func legacyModel(for provider: EnhancementProvider) -> String {
+        switch provider {
+        case .openRouter: legacyOpenRouterModel
+        case .celeris: provider.defaultModel
+        }
+    }
+
+    private static func migratedPromptConfigurations(
+        _ prompts: [PromptConfig],
+        encodedData: Data,
+        legacyProvider: EnhancementProvider,
+        legacyOpenRouterModel: String
+    ) -> [PromptConfig] {
+        guard let objects = try? JSONSerialization.jsonObject(with: encodedData) as? [[String: Any]],
+              objects.count == prompts.count else {
+            return prompts
+        }
+
+        return prompts.enumerated().map { index, prompt in
+            var prompt = prompt
+            let object = objects[index]
+            if object["provider"] == nil {
+                prompt.provider = legacyProvider
+            }
+            if object["model"] == nil {
+                prompt.model = prompt.provider == .openRouter
+                    ? legacyOpenRouterModel
+                    : prompt.provider.defaultModel
+            }
+            return prompt
         }
     }
 }

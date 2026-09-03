@@ -203,7 +203,13 @@ final class ShortcutConfigTests: XCTestCase {
     }
 
     func testPromptConfigCodableRoundTrip() throws {
-        let prompt = PromptConfig(id: UUID(), name: "Test", content: "Do stuff")
+        let prompt = PromptConfig(
+            id: UUID(),
+            name: "Test",
+            content: "Do stuff",
+            provider: .celeris,
+            model: "celeris-next"
+        )
         let data = try JSONEncoder().encode(prompt)
         let decoded = try JSONDecoder().decode(PromptConfig.self, from: data)
         XCTAssertEqual(decoded, prompt)

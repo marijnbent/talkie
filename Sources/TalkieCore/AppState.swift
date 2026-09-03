@@ -167,19 +167,9 @@ final class AppState: ObservableObject {
         set { settingsStore.shortcuts = newValue }
     }
 
-    var enhancementProvider: EnhancementProvider {
-        get { settingsStore.enhancementProvider }
-        set { settingsStore.enhancementProvider = newValue }
-    }
-
     var openRouterApiKey: String {
         get { settingsStore.openRouterApiKey }
         set { settingsStore.openRouterApiKey = newValue }
-    }
-
-    var openRouterModel: String {
-        get { settingsStore.openRouterModel }
-        set { settingsStore.openRouterModel = newValue }
     }
 
     var celerisApiKey: String {
@@ -191,10 +181,6 @@ final class AppState: ObservableObject {
         get { settingsStore.prompts }
         _modify { yield &settingsStore.prompts }
         set { settingsStore.prompts = newValue }
-    }
-
-    var hasEnhancementCredentials: Bool {
-        settingsStore.hasEnhancementCredentials
     }
 
     var escToCancelRecording: Bool {

@@ -144,6 +144,8 @@ final class HistoryTests: XCTestCase {
             enhancementError: nil,
             promptName: "Clean up",
             enhancementPromptText: "Prompt",
+            enhancementProvider: .openRouter,
+            enhancementModel: "anthropic/claude-sonnet-4.5",
             rawRecordingFileURL: recordingURL,
             transcriptionLanguage: .english,
             usedActiveAppPrompt: true
@@ -159,6 +161,8 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(restored[0].enhancedText, entry.enhancedText)
         XCTAssertEqual(restored[0].promptName, entry.promptName)
         XCTAssertEqual(restored[0].enhancementPromptText, entry.enhancementPromptText)
+        XCTAssertEqual(restored[0].enhancementProvider, entry.enhancementProvider)
+        XCTAssertEqual(restored[0].enhancementModel, entry.enhancementModel)
         XCTAssertEqual(restored[0].rawRecordingFileURL, recordingURL)
         XCTAssertEqual(restored[0].transcriptionLanguage, .english)
         XCTAssertTrue(restored[0].usedActiveAppPrompt)

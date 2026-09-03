@@ -12,12 +12,17 @@ enum OpenRouterClient {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let content = "\(prompt)\n\n<transcription>\(transcript)</transcription>"
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "user", "content": content]
             ]
         ]
+        if model == "inception/mercury-2.5-preview" {
+            body["reasoning"] = ["effort": "medium", "exclude": true]
+            body["max_tokens"] = 4_096
+            body["temperature"] = 0
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         do {

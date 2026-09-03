@@ -62,6 +62,8 @@ final class RawRecordingStore {
                 enhancementError: entry.enhancementError,
                 promptName: entry.promptName,
                 enhancementPromptText: entry.enhancementPromptText,
+                enhancementProvider: entry.enhancementProvider,
+                enhancementModel: entry.enhancementModel,
                 rawRecordingFileURL: migratedURL,
                 transcriptionLanguage: entry.transcriptionLanguage,
                 usedActiveAppPrompt: entry.usedActiveAppPrompt

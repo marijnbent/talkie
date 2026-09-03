@@ -27,7 +27,7 @@ struct FinalizedTranscriptSession {
 }
 
 struct PasteRuntimeSettings {
-    let enhancement: EnhancementProviderSettings
+    let enhancement: EnhancementProviderSettings?
     let playSoundEffects: Bool
     let restoreClipboardAfterPaste: Bool
 }
@@ -110,7 +110,11 @@ final class PasteRuntime {
             var enhancementError: String?
 
             if let prompt = session.enhancementPrompt {
-                let enhancementSettings = settings.enhancement
+                let enhancementSettings = settings.enhancement ?? EnhancementProviderSettings(
+                    provider: prompt.provider,
+                    apiKey: "",
+                    model: prompt.model
+                )
                 if let missing = enhancementSettings.missingCredential {
                     let reason = "\(enhancementSettings.provider.displayName) \(missing) is not set."
                     emit(.status(.enhancementSkippedMissing(missing)))
@@ -188,6 +192,8 @@ final class PasteRuntime {
                     enhancementError: enhancementError,
                     promptName: session.enhancementPrompt?.name,
                     enhancementPromptText: session.enhancementPrompt?.content,
+                    enhancementProvider: session.enhancementPrompt?.provider,
+                    enhancementModel: session.enhancementPrompt?.model,
                     rawRecordingFileURL: session.rawRecordingFileURL,
                     transcriptionLanguage: session.transcriptionLanguage,
                     usedActiveAppPrompt: session.enhancementPrompt?.isForActiveApp ?? false
