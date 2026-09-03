@@ -51,9 +51,6 @@ final class GeneralSettingsViewModel: ObservableObject {
         settingsStore.transcriptionProvider.automaticLanguageHelpText
     }
     var starredDeepgramLanguages: [DeepgramLanguage] { settingsStore.starredDeepgramLanguages }
-    var showLiveTranscriptInRecorderWidget: Bool {
-        settingsStore.showLiveTranscriptInRecorderWidget
-    }
     var appTranscriptionLanguageOverrides: [AppTranscriptionLanguageOverride] {
         settingsStore.appTranscriptionLanguageOverrides
     }

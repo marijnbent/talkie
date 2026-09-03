@@ -113,28 +113,6 @@ final class RecorderWidgetPresentationTests: XCTestCase {
         XCTAssertEqual(resetWidth, 112)
     }
 
-    func testTranscriptStylesUseDifferentContextAndWidth() {
-        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .flow), 24)
-        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .focus), 7)
-        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .captions), 20)
-
-        let focusedWidth = RecorderWidgetLayout.nextWidth(
-            compactWidth: 112,
-            measuredTextWidth: 1_000,
-            previousWidth: nil,
-            style: .focus
-        )
-        let captionWidth = RecorderWidgetLayout.nextWidth(
-            compactWidth: 112,
-            measuredTextWidth: 40,
-            previousWidth: nil,
-            style: .captions
-        )
-
-        XCTAssertEqual(focusedWidth, 220)
-        XCTAssertEqual(captionWidth, 230)
-    }
-
     func testTranscriptLeadingFadeOnlyAppearsForOverflow() {
         XCTAssertFalse(
             RecorderWidgetLayout.shouldFadeLeadingEdge(
@@ -154,5 +132,21 @@ final class RecorderWidgetPresentationTests: XCTestCase {
                 availableWidth: 236
             )
         )
+    }
+
+    func testTranscriptEmphasisSettlesIntoMatchingEdgeGradients() {
+        XCTAssertEqual(RecorderWidgetTranscriptEmphasis.settleDelay, 0.75)
+        XCTAssertEqual(
+            RecorderWidgetTranscriptEmphasis.activeOpacity(distanceFromNewest: 0),
+            0.94
+        )
+
+        let settled = (0..<7).map {
+            RecorderWidgetTranscriptEmphasis.settledOpacity(index: $0, count: 7)
+        }
+
+        XCTAssertEqual(settled.first, settled.last)
+        XCTAssertEqual(settled[1], settled[5])
+        XCTAssertGreaterThan(settled[3], settled[0])
     }
 }

@@ -155,13 +155,6 @@ struct GeneralSettingsView: View {
                 Toggle("Mute during recording", isOn: viewModel.binding(for: \.muteMediaDuringRecording))
                 Toggle("Restore clipboard after confirmed auto-paste", isOn: viewModel.binding(for: \.restoreClipboardAfterPaste))
                 Toggle("Show live transcript in recorder widget", isOn: viewModel.binding(for: \.showLiveTranscriptInRecorderWidget))
-                Picker("Live transcript style", selection: viewModel.binding(for: \.liveTranscriptStyle)) {
-                    ForEach(LiveTranscriptStyle.allCases) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(!viewModel.showLiveTranscriptInRecorderWidget)
                 Picker("Widget position", selection: viewModel.binding(for: \.overlayPosition)) {
                     ForEach(OverlayPosition.allCases) { position in
                         Text(position.displayName).tag(position)

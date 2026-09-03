@@ -24,7 +24,6 @@ final class SettingsStore: ObservableObject {
     static let showSelectedLanguageInMenuBarKey = "Talkie.ShowSelectedLanguageInMenuBar"
     static let showLanguageInRecorderWidgetKey = "Talkie.ShowLanguageInRecorderWidget"
     static let showLiveTranscriptInRecorderWidgetKey = "Talkie.ShowLiveTranscriptInRecorderWidget"
-    static let liveTranscriptStyleKey = "Talkie.LiveTranscriptStyle"
     static let overlayPositionKey = "Talkie.OverlayPosition"
     static let audioInputSelectionKey = "Talkie.AudioInputSelection"
     static let appTranscriptionLanguageOverridesKey = "Talkie.AppTranscriptionLanguageOverrides"
@@ -134,12 +133,6 @@ final class SettingsStore: ObservableObject {
     @Published var showLiveTranscriptInRecorderWidget: Bool {
         didSet {
             defaults.set(showLiveTranscriptInRecorderWidget, forKey: Self.showLiveTranscriptInRecorderWidgetKey)
-        }
-    }
-
-    @Published var liveTranscriptStyle: LiveTranscriptStyle {
-        didSet {
-            defaults.set(liveTranscriptStyle.rawValue, forKey: Self.liveTranscriptStyleKey)
         }
     }
 
@@ -257,8 +250,6 @@ final class SettingsStore: ObservableObject {
         showSelectedLanguageInMenuBar = (defaults.object(forKey: Self.showSelectedLanguageInMenuBarKey) as? Bool) ?? false
         showLanguageInRecorderWidget = (defaults.object(forKey: Self.showLanguageInRecorderWidgetKey) as? Bool) ?? true
         showLiveTranscriptInRecorderWidget = (defaults.object(forKey: Self.showLiveTranscriptInRecorderWidgetKey) as? Bool) ?? true
-        liveTranscriptStyle = defaults.string(forKey: Self.liveTranscriptStyleKey)
-            .flatMap(LiveTranscriptStyle.init(rawValue:)) ?? .flow
 
         let savedPosition = defaults.string(forKey: Self.overlayPositionKey)
         overlayPosition = savedPosition.flatMap(OverlayPosition.init(rawValue:)) ?? .top
@@ -313,22 +304,6 @@ final class SettingsStore: ObservableObject {
                 shortcuts: &shortcuts,
                 prompts: &prompts
             )
-        }
-    }
-}
-
-enum LiveTranscriptStyle: String, CaseIterable, Identifiable {
-    case flow
-    case focus
-    case captions
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .flow: "Flow"
-        case .focus: "Focus"
-        case .captions: "Captions"
         }
     }
 }

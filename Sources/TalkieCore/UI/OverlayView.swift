@@ -52,17 +52,36 @@ struct RecorderWidgetTranscriptWord: Identifiable, Equatable {
 enum RecorderWidgetTranscriptWords {
     static let visibleLimit = 24
 
-    static func project(
-        _ transcript: String,
-        limit: Int = visibleLimit
-    ) -> [RecorderWidgetTranscriptWord] {
+    static func project(_ transcript: String) -> [RecorderWidgetTranscriptWord] {
         let words = transcript
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
-        let firstVisibleIndex = max(0, words.count - limit)
+        let firstVisibleIndex = max(0, words.count - visibleLimit)
         return words.enumerated().dropFirst(firstVisibleIndex).map {
             RecorderWidgetTranscriptWord(id: $0.offset, text: $0.element)
         }
+    }
+}
+
+enum RecorderWidgetTranscriptEmphasis {
+    static let settleDelay: TimeInterval = 0.75
+
+    static func activeOpacity(distanceFromNewest: Int) -> Double {
+        switch distanceFromNewest {
+        case 0: 0.94
+        case 1: 0.76
+        case 2: 0.6
+        default: 0.36
+        }
+    }
+
+    static func settledOpacity(index: Int, count: Int) -> Double {
+        guard count > 1 else { return 0.62 }
+        guard count > 2 else { return 0.46 }
+        let distanceToEdge = min(index, count - index - 1)
+        let distanceToCenter = max(1, (count - 1) / 2)
+        let progress = min(1, Double(distanceToEdge) / Double(distanceToCenter))
+        return 0.36 + progress * 0.36
     }
 }
 
@@ -73,20 +92,11 @@ enum RecorderWidgetLayout {
     static let transcriptFontSize: CGFloat = 11
     static let wordSpacing: CGFloat = 3
 
-    static func measuredTextWidth(
-        for transcript: String,
-        style: LiveTranscriptStyle = .flow
-    ) -> CGFloat? {
-        let words = RecorderWidgetTranscriptWords.project(
-            transcript,
-            limit: visibleWordLimit(for: style)
-        )
+    static func measuredTextWidth(for transcript: String) -> CGFloat? {
+        let words = RecorderWidgetTranscriptWords.project(transcript)
         guard !words.isEmpty else { return nil }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(
-                ofSize: style == .captions ? 12 : transcriptFontSize,
-                weight: style == .captions ? .medium : .regular
-            ),
+            .font: NSFont.systemFont(ofSize: transcriptFontSize, weight: .regular),
         ]
         let wordsWidth = words.reduce(CGFloat.zero) { width, word in
             width + (word.text as NSString).size(withAttributes: attributes).width
@@ -97,14 +107,12 @@ enum RecorderWidgetLayout {
     static func nextWidth(
         compactWidth: CGFloat,
         measuredTextWidth: CGFloat?,
-        previousWidth: CGFloat?,
-        style: LiveTranscriptStyle = .flow
+        previousWidth: CGFloat?
     ) -> CGFloat {
         guard let measuredTextWidth else { return compactWidth }
-        let minimumWidth = style == .captions ? 230 : compactWidth
         let desiredWidth = min(
-            maximumWidth(for: style),
-            max(minimumWidth, ceil(measuredTextWidth) + horizontalTextPadding)
+            maximumWidth,
+            max(compactWidth, ceil(measuredTextWidth) + horizontalTextPadding)
         )
         return max(previousWidth ?? compactWidth, desiredWidth)
     }
@@ -115,22 +123,6 @@ enum RecorderWidgetLayout {
     ) -> Bool {
         guard let measuredTextWidth else { return false }
         return measuredTextWidth > availableWidth + 0.5
-    }
-
-    static func visibleWordLimit(for style: LiveTranscriptStyle) -> Int {
-        switch style {
-        case .flow: 24
-        case .focus: 7
-        case .captions: 20
-        }
-    }
-
-    private static func maximumWidth(for style: LiveTranscriptStyle) -> CGFloat {
-        switch style {
-        case .flow: maximumWidth
-        case .focus: 220
-        case .captions: 300
-        }
     }
 }
 
@@ -152,8 +144,7 @@ struct OverlayView: View {
     }
 
     private var cardCornerRadius: CGFloat {
-        guard presentation.showsStreamedText else { return 17 }
-        return settingsStore.liveTranscriptStyle == .captions ? 20 : 18
+        presentation.showsStreamedText ? 18 : 17
     }
 
     private var contentAnimation: Animation? {
@@ -171,10 +162,7 @@ struct OverlayView: View {
     var body: some View {
         VStack(alignment: .center, spacing: presentation.showsStreamedText ? 4 : 0) {
             if let streamedText = presentation.streamedText {
-                StreamingTranscriptText(
-                    text: streamedText,
-                    style: settingsStore.liveTranscriptStyle
-                )
+                StreamingTranscriptText(text: streamedText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(transcriptRowTransition)
             }
@@ -205,7 +193,6 @@ struct OverlayView: View {
         .padding(.vertical, presentation.showsStreamedText ? 8 : 5)
         .modifier(OverlayCardSurface(cornerRadius: cardCornerRadius))
         .animation(contentAnimation, value: presentation.showsStreamedText)
-        .animation(contentAnimation, value: settingsStore.liveTranscriptStyle)
         .scaleEffect(appear ? 1.0 : 0.96)
         .opacity(appear ? 1.0 : 0.0)
         .offset(y: appear ? 0 : -8)
@@ -234,27 +221,12 @@ struct OverlayView: View {
 }
 
 private struct StreamingTranscriptText: View {
-    let text: String
-    let style: LiveTranscriptStyle
-
-    @ViewBuilder
-    var body: some View {
-        switch style {
-        case .flow:
-            FlowingTranscriptText(text: text)
-        case .focus:
-            FocusedTranscriptText(text: text)
-        case .captions:
-            CaptionTranscriptText(text: text)
-        }
-    }
-}
-
-private struct FlowingTranscriptText: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let text: String
     @State private var words: [RecorderWidgetTranscriptWord] = []
     @State private var entranceDelays: [Int: Double] = [:]
+    @State private var isReceivingSpeech = true
+    @State private var settleTask: Task<Void, Never>?
 
     private var layoutAnimation: Animation? {
         reduceMotion ? nil : .easeOut(duration: 0.12)
@@ -262,24 +234,32 @@ private struct FlowingTranscriptText: View {
 
     var body: some View {
         TranscriptWordLayout(spacing: RecorderWidgetLayout.wordSpacing) {
-            ForEach(words) { word in
-                AnimatedTranscriptWord(
-                    text: word.text,
+            ForEach(Array(words.enumerated()), id: \.element.id) { index, word in
+                StreamingTranscriptWord(
+                    word: word,
+                    index: index,
+                    wordCount: words.count,
+                    isReceivingSpeech: isReceivingSpeech,
                     delay: entranceDelays[word.id] ?? 0
                 )
             }
         }
         .frame(maxWidth: .infinity, minHeight: 14, maxHeight: 14, alignment: .leading)
         .clipped()
-        .mask(TranscriptLeadingFadeMask(text: text, style: .flow))
+        .mask(TranscriptLeadingFadeMask(text: text))
         .animation(layoutAnimation, value: words.last?.id)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
         .onAppear {
             updateWords(from: text)
+            scheduleSettle()
         }
         .onChange(of: text) { updatedText in
             updateWords(from: updatedText)
+            scheduleSettle()
+        }
+        .onDisappear {
+            settleTask?.cancel()
         }
     }
 
@@ -292,115 +272,34 @@ private struct FlowingTranscriptText: View {
         })
         words = updatedWords
     }
-}
 
-private struct FocusedTranscriptText: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let text: String
-
-    private var words: [RecorderWidgetTranscriptWord] {
-        RecorderWidgetTranscriptWords.project(
-            text,
-            limit: RecorderWidgetLayout.visibleWordLimit(for: .focus)
-        )
-    }
-
-    var body: some View {
-        TranscriptWordLayout(spacing: RecorderWidgetLayout.wordSpacing) {
-            ForEach(Array(words.enumerated()), id: \.element.id) { index, word in
-                FocusedTranscriptWord(
-                    word: word,
-                    distanceFromNewest: words.count - index - 1
+    private func scheduleSettle() {
+        settleTask?.cancel()
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+            isReceivingSpeech = true
+        }
+        settleTask = Task { @MainActor in
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(RecorderWidgetTranscriptEmphasis.settleDelay * 1_000_000_000)
                 )
+            } catch {
+                return
+            }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+                isReceivingSpeech = false
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 14, maxHeight: 14, alignment: .leading)
-        .clipped()
-        .mask(TranscriptLeadingFadeMask(text: text, style: .focus))
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: words.last?.id)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
-    }
-}
-
-private struct FocusedTranscriptWord: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let word: RecorderWidgetTranscriptWord
-    let distanceFromNewest: Int
-    @State private var isVisible = false
-
-    private var opacity: Double {
-        switch distanceFromNewest {
-        case 0: 0.94
-        case 1: 0.76
-        case 2: 0.6
-        default: 0.36
-        }
-    }
-
-    var body: some View {
-        Text(word.text)
-            .font(.system(
-                size: RecorderWidgetLayout.transcriptFontSize,
-                weight: distanceFromNewest == 0 ? .semibold : .regular
-            ))
-            .foregroundStyle(Color.primary.opacity(opacity))
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .opacity(isVisible || reduceMotion ? 1 : 0)
-            .scaleEffect(isVisible || reduceMotion ? 1 : 0.94)
-            .offset(y: isVisible || reduceMotion ? 0 : 2)
-            .onAppear {
-                guard !reduceMotion else {
-                    isVisible = true
-                    return
-                }
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-                    isVisible = true
-                }
-            }
-            .onChange(of: reduceMotion) { shouldReduceMotion in
-                if shouldReduceMotion {
-                    isVisible = true
-                }
-            }
-    }
-}
-
-private struct CaptionTranscriptText: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let text: String
-
-    private var caption: String {
-        RecorderWidgetTranscriptWords.project(
-            text,
-            limit: RecorderWidgetLayout.visibleWordLimit(for: .captions)
-        )
-        .map(\.text)
-        .joined(separator: " ")
-    }
-
-    var body: some View {
-        Text(caption)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color.primary.opacity(0.82))
-            .lineLimit(2)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .center)
-            .contentTransition(.opacity)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: caption)
-            .accessibilityLabel(text)
     }
 }
 
 private struct TranscriptLeadingFadeMask: View {
     let text: String
-    let style: LiveTranscriptStyle
 
     var body: some View {
         GeometryReader { geometry in
             if RecorderWidgetLayout.shouldFadeLeadingEdge(
-                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: text, style: style),
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: text),
                 availableWidth: geometry.size.width
             ) {
                 HStack(spacing: 0) {
@@ -421,37 +320,62 @@ private struct TranscriptLeadingFadeMask: View {
     }
 }
 
-private struct AnimatedTranscriptWord: View {
+private struct StreamingTranscriptWord: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let text: String
+    let word: RecorderWidgetTranscriptWord
+    let index: Int
+    let wordCount: Int
+    let isReceivingSpeech: Bool
     let delay: Double
     @State private var isVisible = false
 
+    private var isNewest: Bool {
+        index == wordCount - 1
+    }
+
+    private var textOpacity: Double {
+        if isReceivingSpeech {
+            return RecorderWidgetTranscriptEmphasis.activeOpacity(
+                distanceFromNewest: wordCount - index - 1
+            )
+        }
+        return RecorderWidgetTranscriptEmphasis.settledOpacity(index: index, count: wordCount)
+    }
+
     var body: some View {
-        Text(text)
-            .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .regular))
-            .foregroundStyle(Color.primary.opacity(0.76))
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .opacity(isVisible || reduceMotion ? 1 : 0.6)
-            .offset(y: isVisible || reduceMotion ? 0 : 3)
-            .onAppear {
-                guard !reduceMotion else {
-                    isVisible = true
-                    return
-                }
-                withAnimation(
-                    .spring(response: 0.22, dampingFraction: 0.86)
-                        .delay(delay)
-                ) {
-                    isVisible = true
-                }
+        ZStack {
+            Text(word.text)
+                .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .regular))
+                .opacity(isNewest && isReceivingSpeech ? 0 : 1)
+
+            if isNewest {
+                Text(word.text)
+                    .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .semibold))
+                    .opacity(isReceivingSpeech ? 1 : 0)
             }
-            .onChange(of: reduceMotion) { shouldReduceMotion in
-                if shouldReduceMotion {
-                    isVisible = true
-                }
+        }
+        .foregroundStyle(Color.primary.opacity(textOpacity))
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .opacity(isVisible || reduceMotion ? 1 : 0)
+        .offset(y: isVisible || reduceMotion ? 0 : 2)
+        .onAppear {
+            guard !reduceMotion else {
+                isVisible = true
+                return
             }
+            withAnimation(
+                .spring(response: 0.24, dampingFraction: 0.84)
+                    .delay(delay)
+            ) {
+                isVisible = true
+            }
+        }
+        .onChange(of: reduceMotion) { shouldReduceMotion in
+            if shouldReduceMotion {
+                isVisible = true
+            }
+        }
     }
 }
 
