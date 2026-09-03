@@ -135,7 +135,7 @@ final class RecorderWidgetPresentationTests: XCTestCase {
     }
 
     func testTranscriptEmphasisSettlesIntoMatchingEdgeGradients() {
-        XCTAssertEqual(RecorderWidgetTranscriptEmphasis.settleDelay, 0.75)
+        XCTAssertEqual(RecorderWidgetTranscriptEmphasis.settleDelay, 0.6)
         XCTAssertEqual(
             RecorderWidgetTranscriptEmphasis.activeOpacity(distanceFromNewest: 0),
             0.94

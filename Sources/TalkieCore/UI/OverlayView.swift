@@ -64,7 +64,7 @@ enum RecorderWidgetTranscriptWords {
 }
 
 enum RecorderWidgetTranscriptEmphasis {
-    static let settleDelay: TimeInterval = 0.75
+    static let settleDelay: TimeInterval = 0.6
 
     static func activeOpacity(distanceFromNewest: Int) -> Double {
         switch distanceFromNewest {
@@ -350,7 +350,7 @@ private struct StreamingTranscriptWord: View {
 
             if isNewest {
                 Text(word.text)
-                    .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .semibold))
+                    .font(.system(size: RecorderWidgetLayout.transcriptFontSize, weight: .medium))
                     .opacity(isReceivingSpeech ? 1 : 0)
             }
         }
