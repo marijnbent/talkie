@@ -17,6 +17,7 @@ final class AppStateTests: XCTestCase {
     private let showSelectedLanguageInMenuBarDefaultsKey = "Talkie.ShowSelectedLanguageInMenuBar"
     private let showLanguageInRecorderWidgetDefaultsKey = "Talkie.ShowLanguageInRecorderWidget"
     private let showLiveTranscriptInRecorderWidgetDefaultsKey = "Talkie.ShowLiveTranscriptInRecorderWidget"
+    private let liveTranscriptStyleDefaultsKey = "Talkie.LiveTranscriptStyle"
     private let audioInputSelectionDefaultsKey = "Talkie.AudioInputSelection"
 
     override func setUp() {
@@ -35,6 +36,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLiveTranscriptInRecorderWidgetDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: liveTranscriptStyleDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
     }
 
@@ -53,6 +55,7 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: showSelectedLanguageInMenuBarDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLanguageInRecorderWidgetDefaultsKey)
         UserDefaults.standard.removeObject(forKey: showLiveTranscriptInRecorderWidgetDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: liveTranscriptStyleDefaultsKey)
         UserDefaults.standard.removeObject(forKey: audioInputSelectionDefaultsKey)
         super.tearDown()
     }
@@ -343,6 +346,19 @@ final class AppStateTests: XCTestCase {
 
         let restored = AppState()
         XCTAssertFalse(restored.showLiveTranscriptInRecorderWidget)
+    }
+
+    func testLiveTranscriptStyleDefaultsToFlow() {
+        let state = AppState()
+        XCTAssertEqual(state.liveTranscriptStyle, .flow)
+    }
+
+    func testLiveTranscriptStylePersists() {
+        let state = AppState()
+        state.liveTranscriptStyle = .captions
+
+        let restored = AppState()
+        XCTAssertEqual(restored.liveTranscriptStyle, .captions)
     }
 
     // MARK: - Clipboard Restore

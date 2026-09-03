@@ -52,11 +52,14 @@ struct RecorderWidgetTranscriptWord: Identifiable, Equatable {
 enum RecorderWidgetTranscriptWords {
     static let visibleLimit = 24
 
-    static func project(_ transcript: String) -> [RecorderWidgetTranscriptWord] {
+    static func project(
+        _ transcript: String,
+        limit: Int = visibleLimit
+    ) -> [RecorderWidgetTranscriptWord] {
         let words = transcript
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
-        let firstVisibleIndex = max(0, words.count - visibleLimit)
+        let firstVisibleIndex = max(0, words.count - limit)
         return words.enumerated().dropFirst(firstVisibleIndex).map {
             RecorderWidgetTranscriptWord(id: $0.offset, text: $0.element)
         }
@@ -70,11 +73,20 @@ enum RecorderWidgetLayout {
     static let transcriptFontSize: CGFloat = 11
     static let wordSpacing: CGFloat = 3
 
-    static func measuredTextWidth(for transcript: String) -> CGFloat? {
-        let words = RecorderWidgetTranscriptWords.project(transcript)
+    static func measuredTextWidth(
+        for transcript: String,
+        style: LiveTranscriptStyle = .flow
+    ) -> CGFloat? {
+        let words = RecorderWidgetTranscriptWords.project(
+            transcript,
+            limit: visibleWordLimit(for: style)
+        )
         guard !words.isEmpty else { return nil }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: transcriptFontSize, weight: .regular),
+            .font: NSFont.systemFont(
+                ofSize: style == .captions ? 12 : transcriptFontSize,
+                weight: style == .captions ? .medium : .regular
+            ),
         ]
         let wordsWidth = words.reduce(CGFloat.zero) { width, word in
             width + (word.text as NSString).size(withAttributes: attributes).width
@@ -85,12 +97,14 @@ enum RecorderWidgetLayout {
     static func nextWidth(
         compactWidth: CGFloat,
         measuredTextWidth: CGFloat?,
-        previousWidth: CGFloat?
+        previousWidth: CGFloat?,
+        style: LiveTranscriptStyle = .flow
     ) -> CGFloat {
         guard let measuredTextWidth else { return compactWidth }
+        let minimumWidth = style == .captions ? 230 : compactWidth
         let desiredWidth = min(
-            maximumWidth,
-            max(compactWidth, ceil(measuredTextWidth) + horizontalTextPadding)
+            maximumWidth(for: style),
+            max(minimumWidth, ceil(measuredTextWidth) + horizontalTextPadding)
         )
         return max(previousWidth ?? compactWidth, desiredWidth)
     }
@@ -101,6 +115,22 @@ enum RecorderWidgetLayout {
     ) -> Bool {
         guard let measuredTextWidth else { return false }
         return measuredTextWidth > availableWidth + 0.5
+    }
+
+    static func visibleWordLimit(for style: LiveTranscriptStyle) -> Int {
+        switch style {
+        case .flow: 24
+        case .focus: 7
+        case .captions: 20
+        }
+    }
+
+    private static func maximumWidth(for style: LiveTranscriptStyle) -> CGFloat {
+        switch style {
+        case .flow: maximumWidth
+        case .focus: 220
+        case .captions: 300
+        }
     }
 }
 
@@ -122,7 +152,8 @@ struct OverlayView: View {
     }
 
     private var cardCornerRadius: CGFloat {
-        presentation.showsStreamedText ? 18 : 17
+        guard presentation.showsStreamedText else { return 17 }
+        return settingsStore.liveTranscriptStyle == .captions ? 20 : 18
     }
 
     private var contentAnimation: Animation? {
@@ -140,7 +171,10 @@ struct OverlayView: View {
     var body: some View {
         VStack(alignment: .center, spacing: presentation.showsStreamedText ? 4 : 0) {
             if let streamedText = presentation.streamedText {
-                StreamingTranscriptText(text: streamedText)
+                StreamingTranscriptText(
+                    text: streamedText,
+                    style: settingsStore.liveTranscriptStyle
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(transcriptRowTransition)
             }
@@ -170,8 +204,8 @@ struct OverlayView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, presentation.showsStreamedText ? 8 : 5)
         .modifier(OverlayCardSurface(cornerRadius: cardCornerRadius))
-        // Existing word positions update immediately. Newly appended words animate inside the row.
         .animation(contentAnimation, value: presentation.showsStreamedText)
+        .animation(contentAnimation, value: settingsStore.liveTranscriptStyle)
         .scaleEffect(appear ? 1.0 : 0.96)
         .opacity(appear ? 1.0 : 0.0)
         .offset(y: appear ? 0 : -8)
@@ -200,6 +234,23 @@ struct OverlayView: View {
 }
 
 private struct StreamingTranscriptText: View {
+    let text: String
+    let style: LiveTranscriptStyle
+
+    @ViewBuilder
+    var body: some View {
+        switch style {
+        case .flow:
+            FlowingTranscriptText(text: text)
+        case .focus:
+            FocusedTranscriptText(text: text)
+        case .captions:
+            CaptionTranscriptText(text: text)
+        }
+    }
+}
+
+private struct FlowingTranscriptText: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let text: String
     @State private var words: [RecorderWidgetTranscriptWord] = []
@@ -220,28 +271,7 @@ private struct StreamingTranscriptText: View {
         }
         .frame(maxWidth: .infinity, minHeight: 14, maxHeight: 14, alignment: .leading)
         .clipped()
-        .mask {
-            GeometryReader { geometry in
-                if RecorderWidgetLayout.shouldFadeLeadingEdge(
-                    measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: text),
-                    availableWidth: geometry.size.width
-                ) {
-                    HStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [.clear, .white],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: min(RecorderWidgetLayout.leadingFadeWidth, geometry.size.width))
-
-                        Color.white
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                } else {
-                    Color.white
-                }
-            }
-        }
+        .mask(TranscriptLeadingFadeMask(text: text, style: .flow))
         .animation(layoutAnimation, value: words.last?.id)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
@@ -261,6 +291,133 @@ private struct StreamingTranscriptText: View {
             (id, min(Double(index) * 0.025, 0.075))
         })
         words = updatedWords
+    }
+}
+
+private struct FocusedTranscriptText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let text: String
+
+    private var words: [RecorderWidgetTranscriptWord] {
+        RecorderWidgetTranscriptWords.project(
+            text,
+            limit: RecorderWidgetLayout.visibleWordLimit(for: .focus)
+        )
+    }
+
+    var body: some View {
+        TranscriptWordLayout(spacing: RecorderWidgetLayout.wordSpacing) {
+            ForEach(Array(words.enumerated()), id: \.element.id) { index, word in
+                FocusedTranscriptWord(
+                    word: word,
+                    distanceFromNewest: words.count - index - 1
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 14, maxHeight: 14, alignment: .leading)
+        .clipped()
+        .mask(TranscriptLeadingFadeMask(text: text, style: .focus))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: words.last?.id)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+}
+
+private struct FocusedTranscriptWord: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let word: RecorderWidgetTranscriptWord
+    let distanceFromNewest: Int
+    @State private var isVisible = false
+
+    private var opacity: Double {
+        switch distanceFromNewest {
+        case 0: 0.94
+        case 1: 0.76
+        case 2: 0.6
+        default: 0.36
+        }
+    }
+
+    var body: some View {
+        Text(word.text)
+            .font(.system(
+                size: RecorderWidgetLayout.transcriptFontSize,
+                weight: distanceFromNewest == 0 ? .semibold : .regular
+            ))
+            .foregroundStyle(Color.primary.opacity(opacity))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .opacity(isVisible || reduceMotion ? 1 : 0)
+            .scaleEffect(isVisible || reduceMotion ? 1 : 0.94)
+            .offset(y: isVisible || reduceMotion ? 0 : 2)
+            .onAppear {
+                guard !reduceMotion else {
+                    isVisible = true
+                    return
+                }
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                    isVisible = true
+                }
+            }
+            .onChange(of: reduceMotion) { shouldReduceMotion in
+                if shouldReduceMotion {
+                    isVisible = true
+                }
+            }
+    }
+}
+
+private struct CaptionTranscriptText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let text: String
+
+    private var caption: String {
+        RecorderWidgetTranscriptWords.project(
+            text,
+            limit: RecorderWidgetLayout.visibleWordLimit(for: .captions)
+        )
+        .map(\.text)
+        .joined(separator: " ")
+    }
+
+    var body: some View {
+        Text(caption)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.primary.opacity(0.82))
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .center)
+            .contentTransition(.opacity)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: caption)
+            .accessibilityLabel(text)
+    }
+}
+
+private struct TranscriptLeadingFadeMask: View {
+    let text: String
+    let style: LiveTranscriptStyle
+
+    var body: some View {
+        GeometryReader { geometry in
+            if RecorderWidgetLayout.shouldFadeLeadingEdge(
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: text, style: style),
+                availableWidth: geometry.size.width
+            ) {
+                HStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [.clear, .white],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: min(RecorderWidgetLayout.leadingFadeWidth, geometry.size.width))
+
+                    Color.white
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            } else {
+                Color.white
+            }
+        }
     }
 }
 

@@ -11,6 +11,7 @@ final class OverlayWindowController {
     private var animationID = UUID()
     private var streamedOverlayWidth: CGFloat?
     private var cachedCompactOverlayWidth: CGFloat?
+    private var cachedLiveTranscriptStyle: LiveTranscriptStyle?
     private var lastTargetFrame: CGRect?
     private var cancellables = Set<AnyCancellable>()
     var onCycleLanguage: (() -> Void)?
@@ -20,7 +21,11 @@ final class OverlayWindowController {
         self.settingsStore = settingsStore
 
         settingsStore.$showLiveTranscriptInRecorderWidget
-            .combineLatest(settingsStore.$showLanguageInRecorderWidget, settingsStore.$overlayPosition)
+            .combineLatest(
+                settingsStore.$showLanguageInRecorderWidget,
+                settingsStore.$overlayPosition,
+                settingsStore.$liveTranscriptStyle
+            )
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -177,6 +182,7 @@ final class OverlayWindowController {
         self.panel = nil
         streamedOverlayWidth = nil
         cachedCompactOverlayWidth = nil
+        cachedLiveTranscriptStyle = nil
         lastTargetFrame = nil
     }
 
@@ -202,15 +208,21 @@ final class OverlayWindowController {
     private func synchronizeStreamedOverlayWidth() -> Bool {
         let previousWidth = streamedOverlayWidth
         let compactWidth = compactOverlayWidth
-        if cachedCompactOverlayWidth != compactWidth {
+        let style = settingsStore.liveTranscriptStyle
+        if cachedCompactOverlayWidth != compactWidth || cachedLiveTranscriptStyle != style {
             streamedOverlayWidth = nil
             cachedCompactOverlayWidth = compactWidth
+            cachedLiveTranscriptStyle = style
         }
         if let streamedText = presentation.streamedText {
             streamedOverlayWidth = RecorderWidgetLayout.nextWidth(
                 compactWidth: compactWidth,
-                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: streamedText),
-                previousWidth: streamedOverlayWidth
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(
+                    for: streamedText,
+                    style: style
+                ),
+                previousWidth: streamedOverlayWidth,
+                style: style
             )
         } else {
             streamedOverlayWidth = nil
@@ -238,8 +250,12 @@ final class OverlayWindowController {
         if let streamedText = presentation.streamedText {
             return streamedOverlayWidth ?? RecorderWidgetLayout.nextWidth(
                 compactWidth: compactOverlayWidth,
-                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(for: streamedText),
-                previousWidth: nil
+                measuredTextWidth: RecorderWidgetLayout.measuredTextWidth(
+                    for: streamedText,
+                    style: settingsStore.liveTranscriptStyle
+                ),
+                previousWidth: nil,
+                style: settingsStore.liveTranscriptStyle
             )
         }
 
@@ -252,7 +268,8 @@ final class OverlayWindowController {
     }
 
     private var overlayHeight: CGFloat {
-        presentation.showsStreamedText ? 68 : 42
+        guard presentation.showsStreamedText else { return 42 }
+        return settingsStore.liveTranscriptStyle == .captions ? 84 : 68
     }
 
     private var presentation: RecorderWidgetPresentation {

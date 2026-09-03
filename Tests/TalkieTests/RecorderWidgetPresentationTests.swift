@@ -113,6 +113,28 @@ final class RecorderWidgetPresentationTests: XCTestCase {
         XCTAssertEqual(resetWidth, 112)
     }
 
+    func testTranscriptStylesUseDifferentContextAndWidth() {
+        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .flow), 24)
+        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .focus), 7)
+        XCTAssertEqual(RecorderWidgetLayout.visibleWordLimit(for: .captions), 20)
+
+        let focusedWidth = RecorderWidgetLayout.nextWidth(
+            compactWidth: 112,
+            measuredTextWidth: 1_000,
+            previousWidth: nil,
+            style: .focus
+        )
+        let captionWidth = RecorderWidgetLayout.nextWidth(
+            compactWidth: 112,
+            measuredTextWidth: 40,
+            previousWidth: nil,
+            style: .captions
+        )
+
+        XCTAssertEqual(focusedWidth, 220)
+        XCTAssertEqual(captionWidth, 230)
+    }
+
     func testTranscriptLeadingFadeOnlyAppearsForOverflow() {
         XCTAssertFalse(
             RecorderWidgetLayout.shouldFadeLeadingEdge(

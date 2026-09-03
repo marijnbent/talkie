@@ -232,6 +232,11 @@ final class AppState: ObservableObject {
         set { settingsStore.showLiveTranscriptInRecorderWidget = newValue }
     }
 
+    var liveTranscriptStyle: LiveTranscriptStyle {
+        get { settingsStore.liveTranscriptStyle }
+        set { settingsStore.liveTranscriptStyle = newValue }
+    }
+
     var overlayPosition: OverlayPosition {
         get { settingsStore.overlayPosition }
         set { settingsStore.overlayPosition = newValue }
