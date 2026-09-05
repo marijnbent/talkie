@@ -178,7 +178,7 @@ struct OverlayView: View {
                 }
 
                 RecordingStatusOrb(
-                    level: sessionState.audioLevel,
+                    audioMeter: sessionState.audioMeter,
                     isEnhancing: isEnhancing
                 )
 
@@ -592,7 +592,7 @@ private struct OverlayAppIcon: View {
 
 private struct RecordingStatusOrb: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let level: CGFloat
+    @ObservedObject var audioMeter: AudioMeterState
     let isEnhancing: Bool
     @State private var targetLevel: CGFloat = 0
     @State private var displayedLevel: CGFloat = 0
@@ -609,12 +609,12 @@ private struct RecordingStatusOrb: View {
         }
         .frame(width: 32, height: 32)
         .onAppear {
-            let visibleLevel = RecorderWidgetMeter.visibleLevel(for: level)
+            let visibleLevel = RecorderWidgetMeter.visibleLevel(for: audioMeter.level)
             targetLevel = visibleLevel
             displayedLevel = visibleLevel
             enhancementMotion = isEnhancing && !reduceMotion
         }
-        .onChange(of: level) { updatedLevel in
+        .onChange(of: audioMeter.level) { updatedLevel in
             targetLevel = RecorderWidgetMeter.visibleLevel(for: updatedLevel)
             if reduceMotion {
                 displayedLevel = targetLevel
@@ -630,7 +630,7 @@ private struct RecordingStatusOrb: View {
             enhancementMotion = isEnhancing && !shouldReduceMotion
         }
         .onReceive(ticker) { _ in
-            guard !reduceMotion else { return }
+            guard !reduceMotion, !isEnhancing, displayedLevel != targetLevel else { return }
             displayedLevel = RecorderWidgetMeter.smoothedLevel(
                 current: displayedLevel,
                 target: targetLevel

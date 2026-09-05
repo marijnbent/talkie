@@ -114,8 +114,8 @@ final class AppState: ObservableObject {
     }
 
     var audioLevel: CGFloat {
-        get { sessionState.audioLevel }
-        set { sessionState.audioLevel = newValue }
+        get { sessionState.audioMeter.level }
+        set { sessionState.audioMeter.update(newValue) }
     }
 
     var microphonePermission: PermissionStatus {

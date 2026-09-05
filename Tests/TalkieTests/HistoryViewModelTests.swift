@@ -15,7 +15,7 @@ final class HistoryViewModelTests: XCTestCase {
         var updateCount = 0
         let cancellable = viewModel.objectWillChange.sink { updateCount += 1 }
 
-        sessionState.audioLevel = 0.5
+        sessionState.audioMeter.update(0.5)
 
         XCTAssertEqual(updateCount, 0)
 

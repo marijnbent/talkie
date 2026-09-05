@@ -3,6 +3,16 @@ import Foundation
 import SwiftUI
 
 @MainActor
+final class AudioMeterState: ObservableObject {
+    @Published private(set) var level: CGFloat = 0
+
+    func update(_ level: CGFloat) {
+        guard self.level != level else { return }
+        self.level = level
+    }
+}
+
+@MainActor
 final class SessionState: ObservableObject {
     static let maxLogEntries = 1_000
 
@@ -24,7 +34,7 @@ final class SessionState: ObservableObject {
     @Published var overlayVisible = false
     @Published var overlayLabel = "Listening"
     @Published var overlayAppIcon: NSImage?
-    @Published var audioLevel: CGFloat = 0
+    let audioMeter = AudioMeterState()
     var onHistoryEntriesRemoved: (([TranscriptHistoryEntry]) -> Void)?
     var onHistoryPersistenceError: ((String) -> Void)?
     private(set) var historyPersistenceError: String?

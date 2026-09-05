@@ -2,6 +2,50 @@ import XCTest
 @testable import TalkieCore
 
 final class RecorderWidgetPresentationTests: XCTestCase {
+    @MainActor
+    func testMeterUpdatesDoNotRefreshSessionViews() {
+        let session = SessionState()
+        var sessionUpdates = 0
+        var meterUpdates = 0
+        let sessionSubscription = session.objectWillChange.sink { sessionUpdates += 1 }
+        let meterSubscription = session.audioMeter.objectWillChange.sink { meterUpdates += 1 }
+
+        for index in 1...300 {
+            session.audioMeter.update(CGFloat(index % 10) / 10)
+        }
+        session.audioMeter.update(0)
+
+        XCTAssertEqual(meterUpdates, 300)
+        XCTAssertEqual(sessionUpdates, 0)
+        XCTAssertEqual(session.audioMeter.level, 0)
+
+        session.lastTranscript = "New speech"
+        XCTAssertEqual(sessionUpdates, 1)
+        withExtendedLifetime((sessionSubscription, meterSubscription)) {}
+    }
+
+    @MainActor
+    func testLogsOnlyRefreshWhenLogsChange() {
+        let session = SessionState()
+        let viewModel = LogsViewModel(sessionState: session)
+        var updates = 0
+        let subscription = viewModel.objectWillChange.sink { updates += 1 }
+
+        session.audioMeter.update(0.5)
+        session.lastTranscript = "New speech"
+        session.overlayVisible = true
+        XCTAssertEqual(updates, 0)
+
+        session.logs.append(LogEntry(timestamp: Date(), level: .info, message: "Recorded"))
+        XCTAssertEqual(updates, 1)
+        XCTAssertEqual(viewModel.logs.count, 1)
+
+        viewModel.clearLogs()
+        XCTAssertEqual(updates, 2)
+        XCTAssertTrue(viewModel.logs.isEmpty)
+        withExtendedLifetime(subscription) {}
+    }
+
     func testDoesNotShowTextUntilStreamedTextArrives() {
         let presentation = RecorderWidgetPresentation(
             transcript: "",

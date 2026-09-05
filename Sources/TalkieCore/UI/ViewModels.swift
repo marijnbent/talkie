@@ -710,7 +710,7 @@ final class LogsViewModel: ObservableObject {
 
     init(sessionState: SessionState) {
         self.sessionState = sessionState
-        sessionState.objectWillChange
+        sessionState.$logs
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }

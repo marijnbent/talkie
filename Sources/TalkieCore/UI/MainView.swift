@@ -38,11 +38,11 @@ enum SettingsTab: String, CaseIterable {
 
 struct MainView: View {
     @ObservedObject var mainViewModel: MainViewModel
-    @ObservedObject var generalViewModel: GeneralSettingsViewModel
-    @ObservedObject var shortcutsViewModel: ShortcutsSettingsViewModel
-    @ObservedObject var enhancementsViewModel: EnhancementsSettingsViewModel
-    @ObservedObject var historyViewModel: HistoryViewModel
-    @ObservedObject var logsViewModel: LogsViewModel
+    let generalViewModel: GeneralSettingsViewModel
+    let shortcutsViewModel: ShortcutsSettingsViewModel
+    let enhancementsViewModel: EnhancementsSettingsViewModel
+    let historyViewModel: HistoryViewModel
+    let logsViewModel: LogsViewModel
 
     var body: some View {
         Group {

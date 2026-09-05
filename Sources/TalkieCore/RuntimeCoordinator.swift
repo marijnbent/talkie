@@ -200,7 +200,7 @@ final class RuntimeCoordinator {
             }
         }
         recordingRuntime.onAudioLevel = { [weak self] level in
-            self?.sessionState.audioLevel = level
+            self?.sessionState.audioMeter.update(level)
         }
         recordingRuntime.onTranscript = { [weak self] text, isFinal in
             self?.sessionState.handleTranscript(text, isFinal: isFinal)
