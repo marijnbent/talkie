@@ -42,7 +42,7 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testPromptProviderAndModelPersist() {
-        let state = AppState()
+        let state = SettingsStore()
         state.prompts = [
             PromptConfig(
                 id: UUID(),
@@ -53,7 +53,7 @@ final class EnhancementTests: XCTestCase {
             )
         ]
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.prompts.first?.provider, .celeris)
         XCTAssertEqual(restored.prompts.first?.model, "celeris-next")
     }
@@ -69,7 +69,7 @@ final class EnhancementTests: XCTestCase {
         UserDefaults.standard.set(EnhancementProvider.openRouter.rawValue, forKey: enhancementProviderKey)
         UserDefaults.standard.set("anthropic/claude-sonnet-4.5", forKey: openRouterModelKey)
 
-        let restored = AppState()
+        let restored = SettingsStore()
 
         XCTAssertEqual(restored.prompts.first?.id, promptID)
         XCTAssertEqual(restored.prompts.first?.provider, .openRouter)
@@ -93,7 +93,7 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testCelerisApiKeyDefaultsToEmpty() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.celerisApiKey, "")
     }
 
@@ -118,52 +118,52 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testCelerisApiKeyPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.celerisApiKey = "ck-persisted"
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.celerisApiKey, "ck-persisted")
     }
 
     // MARK: - Named Prompts
 
     func testPromptsDefaultToEmpty() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertTrue(state.prompts.isEmpty)
     }
 
     func testPromptsPersist() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(id: UUID(), name: "Fix grammar", content: "fix grammar")
         state.prompts.append(prompt)
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.prompts.count, 1)
         XCTAssertEqual(restored.prompts[0].name, "Fix grammar")
         XCTAssertEqual(restored.prompts[0].content, "fix grammar")
     }
 
     func testDeletePromptRemovesPrompt() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(id: UUID(), name: "Test", content: "test")
         state.prompts.append(prompt)
-        state.deletePrompt(id: prompt.id)
+        PromptRoutingService().deletePrompt(id: prompt.id, settings: state)
 
         XCTAssertTrue(state.prompts.isEmpty)
     }
 
     func testDeletePromptClearsShortcutReferences() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(id: UUID(), name: "Test", content: "test")
         state.prompts.append(prompt)
         state.shortcuts[0].promptID = prompt.id
 
-        state.deletePrompt(id: prompt.id)
+        PromptRoutingService().deletePrompt(id: prompt.id, settings: state)
         XCTAssertNil(state.shortcuts[0].promptID)
     }
 
     func testDeletePromptClearsShortcutOverrideReferences() {
-        let state = AppState()
+        let state = SettingsStore()
         let defaultPrompt = PromptConfig(id: UUID(), name: "Default", content: "default")
         let overridePrompt = PromptConfig(id: UUID(), name: "WhatsApp", content: "whatsapp")
         state.prompts = [defaultPrompt, overridePrompt]
@@ -176,34 +176,34 @@ final class EnhancementTests: XCTestCase {
             )
         ]
 
-        state.deletePrompt(id: overridePrompt.id)
+        PromptRoutingService().deletePrompt(id: overridePrompt.id, settings: state)
 
         XCTAssertTrue(state.shortcuts[0].appPromptOverrides.isEmpty)
         XCTAssertEqual(state.shortcuts[0].promptID, defaultPrompt.id)
     }
 
     func testPromptContentForShortcutID() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(id: UUID(), name: "Test", content: "do the thing")
         state.prompts.append(prompt)
         state.shortcuts[0].promptID = prompt.id
 
-        XCTAssertEqual(state.promptContent(forShortcutID: state.shortcuts[0].id), "do the thing")
+        XCTAssertEqual(PromptRoutingService().promptContent(forShortcutID: state.shortcuts[0].id, settings: state), "do the thing")
     }
 
     func testPromptContentForShortcutIDReturnsNilWithNoPromptID() {
-        let state = AppState()
-        XCTAssertNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
+        let state = SettingsStore()
+        XCTAssertNil(PromptRoutingService().promptContent(forShortcutID: state.shortcuts[0].id, settings: state))
     }
 
     func testPromptContentForShortcutIDReturnsNilForDeletedPrompt() {
-        let state = AppState()
+        let state = SettingsStore()
         state.shortcuts[0].promptID = UUID() // points to nonexistent prompt
-        XCTAssertNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
+        XCTAssertNil(PromptRoutingService().promptContent(forShortcutID: state.shortcuts[0].id, settings: state))
     }
 
     func testPromptContentForShortcutIDUsesAppOverrideBeforeDefault() {
-        let state = AppState()
+        let state = SettingsStore()
         let defaultPrompt = PromptConfig(id: UUID(), name: "Default", content: "default")
         let overridePrompt = PromptConfig(id: UUID(), name: "WhatsApp", content: "override")
         state.prompts = [defaultPrompt, overridePrompt]
@@ -216,8 +216,8 @@ final class EnhancementTests: XCTestCase {
             )
         ]
 
-        let content = state.promptContent(
-            forShortcutID: state.shortcuts[0].id,
+        let content = PromptRoutingService().promptContent(
+            forShortcutID: state.shortcuts[0].id, settings: state,
             activeAppBundleIdentifier: "NET.WHATSAPP.WHATSAPP"
         )
 
@@ -225,7 +225,7 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testResolvedEnhancementPromptUsesDefaultPromptMetadata() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(
             id: UUID(),
             name: "Clean up",
@@ -236,7 +236,7 @@ final class EnhancementTests: XCTestCase {
         state.prompts = [prompt]
         state.shortcuts[0].promptID = prompt.id
 
-        let resolved = state.resolvedEnhancementPrompt(forShortcutID: state.shortcuts[0].id)
+        let resolved = PromptRoutingService().resolvedEnhancementPrompt(forShortcutID: state.shortcuts[0].id, settings: state)
 
         XCTAssertEqual(resolved?.name, "Clean up")
         XCTAssertEqual(resolved?.content, "clean this")
@@ -246,7 +246,7 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testResolvedEnhancementPromptUsesAppOverrideMetadata() {
-        let state = AppState()
+        let state = SettingsStore()
         let defaultPrompt = PromptConfig(id: UUID(), name: "Default", content: "default")
         let overridePrompt = PromptConfig(id: UUID(), name: "WhatsApp", content: "override")
         state.prompts = [defaultPrompt, overridePrompt]
@@ -259,8 +259,8 @@ final class EnhancementTests: XCTestCase {
             )
         ]
 
-        let resolved = state.resolvedEnhancementPrompt(
-            forShortcutID: state.shortcuts[0].id,
+        let resolved = PromptRoutingService().resolvedEnhancementPrompt(
+            forShortcutID: state.shortcuts[0].id, settings: state,
             activeAppBundleIdentifier: "NET.WHATSAPP.WHATSAPP"
         )
 
@@ -270,7 +270,7 @@ final class EnhancementTests: XCTestCase {
     }
 
     func testPromptContentForShortcutIDFallsBackToDefaultWhenNoAppOverrideMatches() {
-        let state = AppState()
+        let state = SettingsStore()
         let defaultPrompt = PromptConfig(id: UUID(), name: "Default", content: "default")
         let overridePrompt = PromptConfig(id: UUID(), name: "WhatsApp", content: "override")
         state.prompts = [defaultPrompt, overridePrompt]
@@ -283,8 +283,8 @@ final class EnhancementTests: XCTestCase {
             )
         ]
 
-        let content = state.promptContent(
-            forShortcutID: state.shortcuts[0].id,
+        let content = PromptRoutingService().promptContent(
+            forShortcutID: state.shortcuts[0].id, settings: state,
             activeAppBundleIdentifier: "com.apple.TextEdit"
         )
 
@@ -295,7 +295,7 @@ final class EnhancementTests: XCTestCase {
 
     func testMigrationFromOldEnhancementPrompts() {
         // Seed old-format data
-        let state1 = AppState()
+        let state1 = SettingsStore()
         let shortcutID = state1.shortcuts[0].id
 
         let oldPrompts: [String: String] = [shortcutID.uuidString: "old prompt content"]
@@ -308,7 +308,7 @@ final class EnhancementTests: XCTestCase {
         let shortcutData = try! JSONEncoder().encode(state1.shortcuts)
         UserDefaults.standard.set(shortcutData, forKey: shortcutsKey)
 
-        let state2 = AppState()
+        let state2 = SettingsStore()
         XCTAssertEqual(state2.prompts.count, 1)
         XCTAssertEqual(state2.prompts[0].content, "old prompt content")
         XCTAssertEqual(state2.shortcuts[0].promptID, state2.prompts[0].id)
@@ -367,11 +367,11 @@ final class EnhancementTests: XCTestCase {
     // MARK: - Missing Credentials with Enhancement Enabled
 
     func testEnhancementEnabledButMissingApiKeyLogsWarning() {
-        let state = AppState()
+        let state = SettingsStore()
         let prompt = PromptConfig(id: UUID(), name: "Fix", content: "fix it")
         state.prompts.append(prompt)
         state.shortcuts[0].promptID = prompt.id
-        XCTAssertNotNil(state.promptContent(forShortcutID: state.shortcuts[0].id))
+        XCTAssertNotNil(PromptRoutingService().promptContent(forShortcutID: state.shortcuts[0].id, settings: state))
 
         let settings = SettingsStore()
         XCTAssertEqual(

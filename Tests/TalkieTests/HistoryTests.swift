@@ -18,9 +18,9 @@ final class HistoryTests: XCTestCase {
     // MARK: - Adding Entries
 
     func testAddTranscriptInsertsAtFront() {
-        let state = AppState()
-        state.addTranscriptToHistory("first")
-        state.addTranscriptToHistory("second")
+        let state = SessionState()
+        state.addTranscriptToHistory("first", limit: .ten)
+        state.addTranscriptToHistory("second", limit: .ten)
 
         XCTAssertEqual(state.transcriptHistory.count, 2)
         XCTAssertEqual(state.transcriptHistory[0].text, "second")
@@ -28,9 +28,9 @@ final class HistoryTests: XCTestCase {
     }
 
     func testAddTranscriptSetsTimestamp() {
-        let state = AppState()
+        let state = SessionState()
         let before = Date()
-        state.addTranscriptToHistory("test")
+        state.addTranscriptToHistory("test", limit: .ten)
         let after = Date()
 
         let entry = state.transcriptHistory.first
@@ -40,9 +40,9 @@ final class HistoryTests: XCTestCase {
     }
 
     func testAddTranscriptGeneratesUniqueIDs() {
-        let state = AppState()
-        state.addTranscriptToHistory("a")
-        state.addTranscriptToHistory("b")
+        let state = SessionState()
+        state.addTranscriptToHistory("a", limit: .ten)
+        state.addTranscriptToHistory("b", limit: .ten)
 
         let ids = state.transcriptHistory.map(\.id)
         XCTAssertEqual(Set(ids).count, 2)
@@ -62,19 +62,19 @@ final class HistoryTests: XCTestCase {
     }
 
     func testHistoryLimitNonePreventsAdding() {
-        let state = AppState()
-        state.historyLimit = .none
+        let state = SessionState()
+        state.applyHistoryLimit(.none)
 
-        state.addTranscriptToHistory("should not appear")
+        state.addTranscriptToHistory("should not appear", limit: .none)
         XCTAssertTrue(state.transcriptHistory.isEmpty)
     }
 
     func testHistoryLimitTenTrimsExcess() {
-        let state = AppState()
-        state.historyLimit = .ten
+        let state = SessionState()
+        state.applyHistoryLimit(.ten)
 
         for i in 0..<15 {
-            state.addTranscriptToHistory("entry \(i)")
+            state.addTranscriptToHistory("entry \(i)", limit: .ten)
         }
 
         XCTAssertEqual(state.transcriptHistory.count, 10)
@@ -83,47 +83,47 @@ final class HistoryTests: XCTestCase {
     }
 
     func testHistoryLimitHundredAllowsMoreEntries() {
-        let state = AppState()
-        state.historyLimit = .hundred
+        let state = SessionState()
+        state.applyHistoryLimit(.hundred)
 
         for i in 0..<50 {
-            state.addTranscriptToHistory("entry \(i)")
+            state.addTranscriptToHistory("entry \(i)", limit: .hundred)
         }
 
         XCTAssertEqual(state.transcriptHistory.count, 50)
     }
 
     func testChangingLimitToNoneClearsHistory() {
-        let state = AppState()
-        state.historyLimit = .ten
-        state.addTranscriptToHistory("a")
-        state.addTranscriptToHistory("b")
+        let state = SessionState()
+        state.applyHistoryLimit(.ten)
+        state.addTranscriptToHistory("a", limit: .ten)
+        state.addTranscriptToHistory("b", limit: .ten)
         XCTAssertEqual(state.transcriptHistory.count, 2)
 
-        state.historyLimit = .none
+        state.applyHistoryLimit(.none)
         XCTAssertTrue(state.transcriptHistory.isEmpty)
     }
 
     func testReducingLimitTrimsExistingEntries() {
-        let state = AppState()
-        state.historyLimit = .hundred
+        let state = SessionState()
+        state.applyHistoryLimit(.hundred)
 
         for i in 0..<20 {
-            state.addTranscriptToHistory("entry \(i)")
+            state.addTranscriptToHistory("entry \(i)", limit: .hundred)
         }
         XCTAssertEqual(state.transcriptHistory.count, 20)
 
-        state.historyLimit = .ten
+        state.applyHistoryLimit(.ten)
         XCTAssertEqual(state.transcriptHistory.count, 10)
         // Most recent entries should be kept
         XCTAssertEqual(state.transcriptHistory[0].text, "entry 19")
     }
 
     func testHistoryLimitPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.historyLimit = .hundred
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.historyLimit, .hundred)
     }
 
@@ -210,11 +210,15 @@ final class HistoryTests: XCTestCase {
         XCTAssertThrowsError(try store.loadEntries())
     }
 
-    func testFailedHistorySaveIsObservableAndFlushRetriesLatestSnapshot() {
+    func testFailedHistorySaveIsObservableAndFlushRetriesLatestSnapshot() async {
         let store = ControlledHistoryStore(failuresRemaining: 1)
         let state = SessionState(historyStore: store)
         var reportedErrors: [String] = []
-        state.onHistoryPersistenceError = { reportedErrors.append($0) }
+        let failed = expectation(description: "History write failed")
+        state.onHistoryPersistenceError = {
+            reportedErrors.append($0)
+            failed.fulfill()
+        }
 
         state.storeTranscriptHistoryEntry(
             TranscriptHistoryEntry(timestamp: Date(), text: "Newest"),
@@ -222,6 +226,7 @@ final class HistoryTests: XCTestCase {
         )
 
         XCTAssertFalse(state.isHistoryPersisted)
+        await fulfillment(of: [failed], timeout: 2)
         XCTAssertNotNil(state.historyPersistenceError)
         XCTAssertEqual(reportedErrors.count, 1)
         XCTAssertEqual(store.attemptedSnapshots.count, 1)
@@ -231,6 +236,7 @@ final class HistoryTests: XCTestCase {
         XCTAssertNil(state.historyPersistenceError)
         XCTAssertEqual(store.attemptedSnapshots.count, 2)
         XCTAssertEqual(store.savedSnapshots.last?.map(\.text), ["Newest"])
+        XCTAssertFalse(store.wroteOnMainThread)
     }
 
     func testAddingAtLimitPersistsFinalSnapshotOnceBeforeDeletingRemovedRecording() {
@@ -252,6 +258,7 @@ final class HistoryTests: XCTestCase {
             limit: .ten
         )
 
+        XCTAssertTrue(state.flushHistory())
         XCTAssertEqual(store.attemptedSnapshots.count, 1)
         XCTAssertEqual(store.savedSnapshots.first?.count, 10)
         XCTAssertEqual(store.savedSnapshots.first?.first?.text, "Newest")
@@ -280,6 +287,24 @@ final class HistoryTests: XCTestCase {
 
         XCTAssertTrue(state.flushHistory())
         XCTAssertEqual(removedEntries.map(\.rawRecordingFileURL), [removedRecordingURL])
+    }
+
+    func testSlowHistoryWriteDoesNotBlockEditsAndFlushSavesLatestBeforeCleanup() {
+        let store = BlockingHistoryStore()
+        let removed = TranscriptHistoryEntry(timestamp: Date(), text: "Removed", rawRecordingFileURL: URL(fileURLWithPath: "/tmp/removed.wav"))
+        let state = SessionState(historyStore: store, initialTranscriptHistory: [removed])
+        var removedEntries: [TranscriptHistoryEntry] = []
+        state.onHistoryEntriesRemoved = { removedEntries.append(contentsOf: $0) }
+        state.transcriptHistory = [TranscriptHistoryEntry(timestamp: Date(), text: "First")]
+        XCTAssertEqual(store.started.wait(timeout: .now() + 2), .success)
+        state.transcriptHistory = [TranscriptHistoryEntry(timestamp: Date(), text: "Second")]
+        state.transcriptHistory = [TranscriptHistoryEntry(timestamp: Date(), text: "Latest")]
+        XCTAssertTrue(removedEntries.isEmpty)
+        store.allowWrite.signal()
+        XCTAssertTrue(state.flushHistory())
+        XCTAssertEqual(store.savedSnapshots.map { $0.map(\.text) }, [["First"], ["Latest"]])
+        XCTAssertFalse(store.wroteOnMainThread)
+        XCTAssertEqual(removedEntries.compactMap(\.rawRecordingFileURL), [removed.rawRecordingFileURL!])
     }
 
     func testUnconfirmedInitialHistoryCannotBeFlushedWithoutAPendingSnapshot() {
@@ -318,8 +343,8 @@ final class HistoryTests: XCTestCase {
     // MARK: - Enhanced Text
 
     func testAddTranscriptWithEnhancedText() {
-        let state = AppState()
-        state.addTranscriptToHistory("raw text", enhancedText: "enhanced text")
+        let state = SessionState()
+        state.addTranscriptToHistory("raw text", enhancedText: "enhanced text", limit: .ten)
 
         XCTAssertEqual(state.transcriptHistory.count, 1)
         XCTAssertEqual(state.transcriptHistory[0].text, "raw text")
@@ -327,8 +352,8 @@ final class HistoryTests: XCTestCase {
     }
 
     func testAddTranscriptWithoutEnhancedText() {
-        let state = AppState()
-        state.addTranscriptToHistory("raw text")
+        let state = SessionState()
+        state.addTranscriptToHistory("raw text", limit: .ten)
 
         XCTAssertEqual(state.transcriptHistory.count, 1)
         XCTAssertEqual(state.transcriptHistory[0].text, "raw text")
@@ -336,7 +361,7 @@ final class HistoryTests: XCTestCase {
     }
 
     func testAddTranscriptStoresPromptMetadata() {
-        let state = AppState()
+        let state = SessionState()
         let recordingURL = URL(fileURLWithPath: "/tmp/history-test.wav")
         state.addTranscriptToHistory(
             "raw text",
@@ -344,8 +369,7 @@ final class HistoryTests: XCTestCase {
             enhancementPromptText: "MPA3\nRewrite this carefully.",
             rawRecordingFileURL: recordingURL,
             transcriptionLanguage: .english,
-            usedActiveAppPrompt: true
-        )
+            usedActiveAppPrompt: true, limit: .ten)
 
         XCTAssertEqual(state.transcriptHistory[0].promptName, "Clean up")
         XCTAssertEqual(state.transcriptHistory[0].enhancementPromptText, "MPA3\nRewrite this carefully.")
@@ -484,6 +508,7 @@ final class HistoryTests: XCTestCase {
 }
 
 private final class ControlledHistoryStore: TranscriptHistoryPersisting {
+    private(set) var wroteOnMainThread = false
     private(set) var failuresRemaining: Int
     private(set) var attemptedSnapshots: [[TranscriptHistoryEntry]] = []
     private(set) var savedSnapshots: [[TranscriptHistoryEntry]] = []
@@ -493,6 +518,7 @@ private final class ControlledHistoryStore: TranscriptHistoryPersisting {
     }
 
     func saveEntries(_ entries: [TranscriptHistoryEntry]) throws {
+        wroteOnMainThread = wroteOnMainThread || Thread.isMainThread
         attemptedSnapshots.append(entries)
         if failuresRemaining > 0 {
             failuresRemaining -= 1
@@ -504,4 +530,22 @@ private final class ControlledHistoryStore: TranscriptHistoryPersisting {
 
 private enum ControlledHistoryStoreError: Error {
     case saveFailed
+}
+
+private final class BlockingHistoryStore: TranscriptHistoryPersisting {
+    let started = DispatchSemaphore(value: 0)
+    let allowWrite = DispatchSemaphore(value: 0)
+    private(set) var savedSnapshots: [[TranscriptHistoryEntry]] = []
+    private(set) var wroteOnMainThread = false
+
+    func saveEntries(_ entries: [TranscriptHistoryEntry]) throws {
+        wroteOnMainThread = wroteOnMainThread || Thread.isMainThread
+        if savedSnapshots.isEmpty {
+            started.signal()
+            guard allowWrite.wait(timeout: .now() + 5) == .success else {
+                throw ControlledHistoryStoreError.saveFailed
+            }
+        }
+        savedSnapshots.append(entries)
+    }
 }

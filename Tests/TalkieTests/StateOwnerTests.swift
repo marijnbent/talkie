@@ -2,7 +2,7 @@ import XCTest
 @testable import TalkieCore
 
 @MainActor
-final class AppStateTests: XCTestCase {
+final class StateOwnerTests: XCTestCase {
     private let apiKeyDefaultsKey = "Talkie.ApiKey"
     private let transcriptionProviderDefaultsKey = "Talkie.TranscriptionProvider"
     private let elevenLabsApiKeyDefaultsKey = "Talkie.ElevenLabsApiKey"
@@ -58,7 +58,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testHandleTranscriptBuildsFinalTranscript() {
-        let state = AppState()
+        let state = SessionState()
         state.resetTranscript()
 
         state.handleTranscript(" hello ", isFinal: true)
@@ -72,7 +72,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testHandleTranscriptIgnoresEmptyFinalText() {
-        let state = AppState()
+        let state = SessionState()
         state.resetTranscript()
 
         state.handleTranscript(" ", isFinal: true)
@@ -80,7 +80,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testNonFinalTranscriptUpdatesLastOnly() {
-        let state = AppState()
+        let state = SessionState()
         state.resetTranscript()
 
         state.handleTranscript("partial", isFinal: false)
@@ -89,7 +89,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testFinalizeLatestInterimTranscriptPromotesLastTranscript() {
-        let state = AppState()
+        let state = SessionState()
         state.resetTranscript()
 
         state.handleTranscript("this is interim", isFinal: false)
@@ -99,7 +99,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testFinalizeLatestInterimTranscriptAvoidsDuplicateSegment() {
-        let state = AppState()
+        let state = SessionState()
         state.resetTranscript()
 
         state.handleTranscript("segment", isFinal: true)
@@ -110,7 +110,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testResetTranscriptClearsState() {
-        let state = AppState()
+        let state = SessionState()
         state.handleTranscript("hello", isFinal: true)
 
         state.resetTranscript()
@@ -119,90 +119,90 @@ final class AppStateTests: XCTestCase {
     }
 
     func testDeepgramLanguageDefaultsToAutomatic() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.deepgramLanguage, .automatic)
     }
 
     func testTranscriptionProviderDefaultsToDeepgram() {
-        let state = AppState()
+        let state = SettingsStore()
 
         XCTAssertEqual(state.transcriptionProvider, .deepgram)
     }
 
     func testElevenLabsProviderAndKeyPersistSeparatelyFromDeepgram() {
-        let state = AppState()
+        let state = SettingsStore()
         state.apiKey = "deepgram-key"
         state.elevenLabsApiKey = "eleven-key"
         state.transcriptionProvider = .elevenLabs
 
-        let restored = AppState()
+        let restored = SettingsStore()
 
         XCTAssertEqual(restored.transcriptionProvider, .elevenLabs)
         XCTAssertEqual(restored.apiKey, "deepgram-key")
         XCTAssertEqual(restored.elevenLabsApiKey, "eleven-key")
         XCTAssertEqual(
-            restored.settingsStore.transcriptionProviderSettings,
+            restored.transcriptionProviderSettings,
             TranscriptionProviderSettings(provider: .elevenLabs, apiKey: "eleven-key")
         )
     }
 
     func testMuseProviderAndKeyPersistSeparately() {
-        let state = AppState()
+        let state = SettingsStore()
         state.apiKey = "deepgram-key"
         state.elevenLabsApiKey = "eleven-key"
         state.museApiKey = "muse-key"
         state.transcriptionProvider = .muse
 
-        let restored = AppState()
+        let restored = SettingsStore()
 
         XCTAssertEqual(restored.transcriptionProvider, .muse)
         XCTAssertEqual(restored.apiKey, "deepgram-key")
         XCTAssertEqual(restored.elevenLabsApiKey, "eleven-key")
         XCTAssertEqual(restored.museApiKey, "muse-key")
         XCTAssertEqual(
-            restored.settingsStore.transcriptionProviderSettings,
+            restored.transcriptionProviderSettings,
             TranscriptionProviderSettings(provider: .muse, apiKey: "muse-key")
         )
     }
 
     func testDeepgramLanguagePersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.deepgramLanguage = .french
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.deepgramLanguage, .french)
     }
 
     func testAutomaticLanguageCandidatesDefaultToDutchAndEnglish() {
-        let state = AppState()
+        let state = SettingsStore()
 
         XCTAssertEqual(
-            state.settingsStore.automaticLanguageCandidates,
+            state.automaticLanguageCandidates,
             [.dutch, .english]
         )
     }
 
     func testAutomaticLanguageCandidatesPersistAndNormalize() {
-        let state = AppState()
-        state.settingsStore.automaticLanguageCandidates = [.russian, .english, .russian, .automatic]
+        let state = SettingsStore()
+        state.automaticLanguageCandidates = [.russian, .english, .russian, .automatic]
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(
-            restored.settingsStore.automaticLanguageCandidates,
+            restored.automaticLanguageCandidates,
             [.english, .russian]
         )
     }
 
     func testStarredDeepgramLanguagesDefaultToAutomaticAndEnglish() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.starredDeepgramLanguages, [.automatic, .english])
     }
 
     func testStarredDeepgramLanguagesPersistDeduplicatedValues() {
-        let state = AppState()
+        let state = SettingsStore()
         state.starredDeepgramLanguages = [.french, .english, .french]
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.starredDeepgramLanguages, [.french, .english])
     }
 
@@ -212,7 +212,7 @@ final class AppStateTests: XCTestCase {
             forKey: starredLanguagesDefaultsKey
         )
 
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.starredDeepgramLanguages, [.french, .english])
     }
 
@@ -220,13 +220,13 @@ final class AppStateTests: XCTestCase {
         UserDefaults.standard.set(DeepgramLanguage.french.rawValue, forKey: languageDefaultsKey)
         UserDefaults.standard.removeObject(forKey: starredLanguagesDefaultsKey)
 
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.deepgramLanguage, .french)
         XCTAssertEqual(state.starredDeepgramLanguages, [.automatic, .english])
     }
 
     func testStarredDeepgramLanguagesCannotBecomeEmpty() {
-        let state = AppState()
+        let state = SettingsStore()
         state.starredDeepgramLanguages = [.english]
         state.starredDeepgramLanguages = []
 
@@ -236,20 +236,20 @@ final class AppStateTests: XCTestCase {
     // MARK: - Shortcuts Persistence
 
     func testShortcutsDefaultToSingleRightOptionBoth() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.shortcuts.count, 1)
         XCTAssertEqual(state.shortcuts[0].key, .rightOption)
         XCTAssertEqual(state.shortcuts[0].mode, .both)
     }
 
     func testShortcutsPersist() {
-        let state = AppState()
+        let state = SettingsStore()
         let id = state.shortcuts[0].id
         state.shortcuts[0].key = .fn
         state.shortcuts[0].mode = .hold
         state.shortcuts.append(ShortcutConfig(id: UUID(), key: .leftControl, mode: .click))
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.shortcuts.count, 2)
         XCTAssertEqual(restored.shortcuts[0].id, id)
         XCTAssertEqual(restored.shortcuts[0].key, .fn)
@@ -263,7 +263,7 @@ final class AppStateTests: XCTestCase {
         let data = try! JSONEncoder().encode([ShortcutConfig]())
         UserDefaults.standard.set(data, forKey: shortcutsDefaultsKey)
 
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.shortcuts.count, 1, "Empty persisted array should fall back to default")
         XCTAssertEqual(state.shortcuts[0].key, .rightOption)
     }
@@ -271,7 +271,7 @@ final class AppStateTests: XCTestCase {
     func testShortcutsCorruptedDataFallsBackToDefault() {
         UserDefaults.standard.set(Data([0xFF, 0xFE]), forKey: shortcutsDefaultsKey)
 
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.shortcuts.count, 1)
         XCTAssertEqual(state.shortcuts[0].key, .rightOption)
     }
@@ -279,97 +279,97 @@ final class AppStateTests: XCTestCase {
     // MARK: - ESC to Cancel Recording
 
     func testEscToCancelRecordingDefaultsToTrue() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertTrue(state.escToCancelRecording)
     }
 
     func testEscToCancelRecordingPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.escToCancelRecording = false
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertFalse(restored.escToCancelRecording)
     }
 
     // MARK: - Sound Effects
 
     func testPlaySoundEffectsDefaultsToFalse() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertFalse(state.playSoundEffects)
     }
 
     func testPlaySoundEffectsPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.playSoundEffects = true
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertTrue(restored.playSoundEffects)
     }
 
     func testShowSelectedLanguageInMenuBarDefaultsToFalse() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertFalse(state.showSelectedLanguageInMenuBar)
     }
 
     func testShowSelectedLanguageInMenuBarPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.showSelectedLanguageInMenuBar = true
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertTrue(restored.showSelectedLanguageInMenuBar)
     }
 
     func testShowLanguageInRecorderWidgetDefaultsToTrue() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertTrue(state.showLanguageInRecorderWidget)
     }
 
     func testShowLanguageInRecorderWidgetPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.showLanguageInRecorderWidget = false
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertFalse(restored.showLanguageInRecorderWidget)
     }
 
     func testShowLiveTranscriptInRecorderWidgetDefaultsToTrue() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertTrue(state.showLiveTranscriptInRecorderWidget)
     }
 
     func testShowLiveTranscriptInRecorderWidgetPersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.showLiveTranscriptInRecorderWidget = false
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertFalse(restored.showLiveTranscriptInRecorderWidget)
     }
 
     // MARK: - Clipboard Restore
 
     func testRestoreClipboardAfterPasteDefaultsToFalse() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertFalse(state.restoreClipboardAfterPaste)
     }
 
     func testRestoreClipboardAfterPastePersists() {
-        let state = AppState()
+        let state = SettingsStore()
         state.restoreClipboardAfterPaste = true
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertTrue(restored.restoreClipboardAfterPaste)
     }
 
     func testAudioInputSelectionDefaultsToSystemDefault() {
-        let state = AppState()
+        let state = SettingsStore()
         XCTAssertEqual(state.audioInputSelection, .systemDefault)
     }
 
     func testAudioInputSelectionPersistsSelectedDevice() {
-        let state = AppState()
+        let state = SettingsStore()
         state.audioInputSelection = .device("usb-mic-123")
 
-        let restored = AppState()
+        let restored = SettingsStore()
         XCTAssertEqual(restored.audioInputSelection, .device("usb-mic-123"))
     }
 }

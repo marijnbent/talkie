@@ -1,5 +1,14 @@
 import Foundation
 
+protocol MuseSocket: AnyObject, Sendable {
+    func resume()
+    func send(_ message: URLSessionWebSocketTask.Message, completionHandler: @escaping @Sendable (Error?) -> Void)
+    func receive(completionHandler: @escaping @Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void)
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
+}
+
+extension URLSessionWebSocketTask: MuseSocket {}
+
 final class MuseClient: NSObject, @unchecked Sendable {
     private final class CompletionBox: @unchecked Sendable {
         let callback: () -> Void
@@ -13,9 +22,13 @@ final class MuseClient: NSObject, @unchecked Sendable {
     private static let model = "muse-voice-transcribe-1.0"
     private static let closeTimeoutSeconds: TimeInterval = 3
 
-    private let session: URLSession
+    private let makeSocket: @Sendable (URL) -> any MuseSocket
+    private let handshakeTimeout: TimeInterval
+    private let maximumPendingAudioBytes: Int
+    private var pendingAudioBytes = 0
+    private var handshakeTimer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "Talkie.MuseClient")
-    private var task: URLSessionWebSocketTask?
+    private var task: (any MuseSocket)?
     private var converter: MusePCMConverter?
     private var isConnected = false
     private var isClosing = false
@@ -33,9 +46,15 @@ final class MuseClient: NSObject, @unchecked Sendable {
         onTranscriptEvent: ((String, Bool) -> Void)? = nil,
         onLog: ((String, LogLevel) -> Void)? = nil,
         onTranscriptionError: ((String) -> Void)? = nil,
-        onConnectionDropped: ((String) -> Void)? = nil
+        onConnectionDropped: ((String) -> Void)? = nil,
+        handshakeTimeout: TimeInterval = 5,
+        maximumPendingAudioBytes: Int = 240_000,
+        makeSocket: (@Sendable (URL) -> any MuseSocket)? = nil
     ) {
-        session = URLSession(configuration: .default)
+        let session = URLSession(configuration: .default)
+        self.makeSocket = makeSocket ?? { session.webSocketTask(with: $0) }
+        self.handshakeTimeout = handshakeTimeout
+        self.maximumPendingAudioBytes = maximumPendingAudioBytes
         self.onTranscriptEvent = onTranscriptEvent
         self.onLog = onLog
         self.onTranscriptionError = onTranscriptionError
@@ -61,7 +80,7 @@ final class MuseClient: NSObject, @unchecked Sendable {
         }
 
         let converter = MusePCMConverter(format: format)
-        let task = session.webSocketTask(with: Self.endpoint)
+        let task = makeSocket(Self.endpoint)
         queue.sync {
             self.task = task
             self.converter = converter
@@ -69,8 +88,10 @@ final class MuseClient: NSObject, @unchecked Sendable {
             self.isClosing = false
             self.handshakeAccepted = false
             self.pendingAudio = []
+            self.pendingAudioBytes = 0
             self.closeTimer?.cancel()
             self.closeTimer = nil
+            scheduleHandshakeTimeoutOnQueue(for: task)
         }
         task.resume()
         onLog?("WebSocket connecting to Muse.", .info)
@@ -112,7 +133,14 @@ final class MuseClient: NSObject, @unchecked Sendable {
             if self.handshakeAccepted {
                 self.sendBinaryOnQueue(converted)
             } else {
+                guard self.pendingAudioBytes + converted.count <= self.maximumPendingAudioBytes else {
+                    if let task = self.task {
+                        self.handleUnexpectedConnectionDropOnQueue("Muse did not accept the audio session in time.", task: task)
+                    }
+                    return
+                }
                 self.pendingAudio.append(converted)
+                self.pendingAudioBytes += converted.count
             }
         }
     }
@@ -133,11 +161,18 @@ final class MuseClient: NSObject, @unchecked Sendable {
                 return
             }
 
+            self.handshakeTimer?.cancel()
+            self.handshakeTimer = nil
             self.isClosing = true
             self.isConnected = false
             self.onClose = completion.callback
             if let tail = self.converter?.finish(), !tail.isEmpty {
+                guard self.pendingAudioBytes + tail.count <= self.maximumPendingAudioBytes else {
+                    self.finishCloseOnQueue()
+                    return
+                }
                 self.pendingAudio.append(tail)
+                self.pendingAudioBytes += tail.count
             }
             if self.handshakeAccepted {
                 self.endStreamOnQueue()
@@ -157,6 +192,9 @@ final class MuseClient: NSObject, @unchecked Sendable {
             isClosing = false
             handshakeAccepted = false
             pendingAudio = []
+            pendingAudioBytes = 0
+            handshakeTimer?.cancel()
+            handshakeTimer = nil
             converter = nil
             closeTimer?.cancel()
             closeTimer = nil
@@ -170,7 +208,7 @@ final class MuseClient: NSObject, @unchecked Sendable {
         }
     }
 
-    private func receiveLoop(for task: URLSessionWebSocketTask) {
+    private func receiveLoop(for task: any MuseSocket) {
         task.receive { [weak self] result in
             guard let self, self.queue.sync(execute: { self.task === task }) else { return }
             switch result {
@@ -211,7 +249,7 @@ final class MuseClient: NSObject, @unchecked Sendable {
         }
     }
 
-    private func handleIncoming(text: String, for task: URLSessionWebSocketTask) {
+    private func handleIncoming(text: String, for task: any MuseSocket) {
         guard let data = text.data(using: .utf8),
               let message = try? JSONDecoder().decode(MuseServerMessage.self, from: data) else {
             onLog?("Failed to decode Muse message. Preview: \(Self.preview(text))", .warning)
@@ -225,6 +263,8 @@ final class MuseClient: NSObject, @unchecked Sendable {
             }
             queue.async { [weak self] in
                 guard let self, self.task === task else { return }
+                self.handshakeTimer?.cancel()
+                self.handshakeTimer = nil
                 self.handshakeAccepted = true
                 self.onLog?("Muse WebSocket connected.", .info)
                 if self.isClosing {
@@ -236,21 +276,25 @@ final class MuseClient: NSObject, @unchecked Sendable {
             return
         }
 
-        switch type {
-        case "transcript":
-            if let transcript = message.transcript, !transcript.isEmpty {
-                onTranscriptEvent?(transcript, message.final ?? false)
+        queue.async { [weak self] in
+            guard let self, self.task === task else { return }
+            switch type {
+            case "transcript":
+                if let transcript = message.transcript, !transcript.isEmpty {
+                    self.onTranscriptEvent?(transcript, message.final ?? false)
+                }
+            case "error":
+                self.reportTranscriptionError("Muse error: \(message.message ?? "Unknown provider error.")")
+            default:
+                break
             }
-        case "error":
-            reportTranscriptionError("Muse error: \(message.message ?? "Unknown provider error.")")
-        default:
-            break
         }
     }
 
     private func sendPendingAudioOnQueue() {
         let audio = pendingAudio
         pendingAudio = []
+        pendingAudioBytes = 0
         for data in audio {
             sendBinaryOnQueue(data)
         }
@@ -282,14 +326,30 @@ final class MuseClient: NSObject, @unchecked Sendable {
         onLog?("Sent endStream to Muse.", .info)
     }
 
-    private func handleUnexpectedConnectionDropOnQueue(_ message: String, task: URLSessionWebSocketTask) {
+    private func handleUnexpectedConnectionDropOnQueue(_ message: String, task: any MuseSocket) {
         guard self.task === task, !isClosing else { return }
         isConnected = false
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
+        task.cancel(with: .goingAway, reason: nil)
         self.task = nil
         pendingAudio = []
+        pendingAudioBytes = 0
         converter = nil
         onLog?(message, .error)
         onConnectionDropped?(message)
+    }
+
+    private func scheduleHandshakeTimeoutOnQueue(for task: any MuseSocket) {
+        handshakeTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + handshakeTimeout)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.task === task, !self.handshakeAccepted else { return }
+            self.handleUnexpectedConnectionDropOnQueue("Muse did not accept the audio session in time.", task: task)
+        }
+        handshakeTimer = timer
+        timer.activate()
     }
 
     private func scheduleCloseTimeoutOnQueue() {
@@ -305,12 +365,15 @@ final class MuseClient: NSObject, @unchecked Sendable {
     private func finishCloseOnQueue() {
         guard isClosing else { return }
         isClosing = false
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
         let callback = onClose
         onClose = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         converter = nil
         pendingAudio = []
+        pendingAudioBytes = 0
         handshakeAccepted = false
         closeTimer?.cancel()
         closeTimer = nil

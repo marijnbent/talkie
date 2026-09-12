@@ -3,6 +3,58 @@ import XCTest
 @testable import TalkieCore
 
 final class MuseClientTests: XCTestCase {
+    func testMissingHandshakeStopsAtTheAudioBudget() {
+        let socket = TestMuseSocket()
+        let dropped = expectation(description: "Audio budget reached")
+        let client = MuseClient(
+            onConnectionDropped: { _ in dropped.fulfill() },
+            maximumPendingAudioBytes: 4,
+            makeSocket: { _ in socket }
+        )
+        client.connect(apiKey: "test", format: AudioStreamFormat(sampleRate: 24_000, channels: 1), language: .english, automaticLanguageCandidates: [])
+        client.sendAudio(data: Data([1, 0, 2, 0]))
+        client.sendAudio(data: Data([3, 0]))
+        wait(for: [dropped], timeout: 2)
+        client.disconnect()
+        XCTAssertEqual(socket.cancelCount, 1)
+        XCTAssertTrue(socket.audio.isEmpty)
+    }
+
+    func testMissingHandshakeTimesOutWithoutAudio() {
+        let socket = TestMuseSocket()
+        let dropped = expectation(description: "Handshake timed out")
+        let client = MuseClient(
+            onConnectionDropped: { _ in dropped.fulfill() },
+            handshakeTimeout: 0.02,
+            makeSocket: { _ in socket }
+        )
+        client.connect(apiKey: "test", format: AudioStreamFormat(sampleRate: 24_000, channels: 1), language: .english, automaticLanguageCandidates: [])
+        wait(for: [dropped], timeout: 2)
+        client.disconnect()
+        XCTAssertEqual(socket.cancelCount, 1)
+    }
+
+    func testHandshakeFlushesAudioInOrderAndOldSocketCannotAcknowledgeNewSession() {
+        let first = TestMuseSocket()
+        let second = TestMuseSocket()
+        let sockets = TestMuseSocketPool([first, second])
+        var transcripts: [String] = []
+        let client = MuseClient(onTranscriptEvent: { text, _ in transcripts.append(text) }, makeSocket: { _ in sockets.next() })
+        let format = AudioStreamFormat(sampleRate: 24_000, channels: 1)
+        client.connect(apiKey: "test", format: format, language: .english, automaticLanguageCandidates: [])
+        client.sendAudio(data: Data([1, 0]))
+        client.connect(apiKey: "test", format: format, language: .english, automaticLanguageCandidates: [])
+        client.sendAudio(data: Data([2, 0]))
+        first.deliver("{\"sessionId\":\"old\"}")
+        XCTAssertTrue(second.audio.isEmpty)
+        second.deliver("{\"sessionId\":\"new\"}")
+        client.sendAudio(data: Data([3, 0]))
+        second.deliver("{\"type\":\"transcript\",\"transcript\":\"current\",\"final\":true}")
+        client.disconnect()
+        XCTAssertEqual(second.audio, [Data([2, 0]), Data([3, 0])])
+        XCTAssertEqual(transcripts, ["current"])
+    }
+
     func testHandshakeUsesFirstFrameAuthenticationAndDutchBias() throws {
         let text = try MuseClient.makeHandshake(
             apiKey: "test-key",
@@ -112,4 +164,46 @@ final class MuseClientTests: XCTestCase {
         XCTAssertEqual(converter.convert(Data([0, 128, 255, 127, 42])), Data([0, 128, 255, 127]))
         XCTAssertEqual(converter.finish(), Data())
     }
+}
+
+private final class TestMuseSocket: MuseSocket, @unchecked Sendable {
+    private let lock = NSLock()
+    private var receiveHandler: (@Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void)?
+    private var sentAudio: [Data] = []
+    private var cancellations = 0
+    var audio: [Data] { lock.withLock { sentAudio } }
+    var cancelCount: Int { lock.withLock { cancellations } }
+
+    func resume() {}
+
+    func send(_ message: URLSessionWebSocketTask.Message, completionHandler: @escaping @Sendable (Error?) -> Void) {
+        if case .data(let data) = message {
+            lock.withLock { sentAudio.append(data) }
+        }
+        completionHandler(nil)
+    }
+
+    func receive(completionHandler: @escaping @Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void) {
+        lock.withLock { receiveHandler = completionHandler }
+    }
+
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        lock.withLock { cancellations += 1 }
+    }
+
+    func deliver(_ text: String) {
+        let handler = lock.withLock {
+            defer { receiveHandler = nil }
+            return receiveHandler
+        }
+        handler?(.success(.string(text)))
+    }
+}
+
+private final class TestMuseSocketPool: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sockets: [TestMuseSocket]
+
+    init(_ sockets: [TestMuseSocket]) { self.sockets = sockets }
+    func next() -> TestMuseSocket { lock.withLock { sockets.removeFirst() } }
 }

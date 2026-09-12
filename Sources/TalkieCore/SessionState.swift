@@ -17,6 +17,15 @@ final class SessionState: ObservableObject {
     static let maxLogEntries = 1_000
 
     private let historyStore: (any TranscriptHistoryPersisting)?
+    private var historyRevision = 0
+    private var lastAppliedWriteSequence = 0
+    private lazy var historyWriter: TranscriptHistoryWriter? = historyStore.map { store in
+        TranscriptHistoryWriter(store: store) { [weak self] result in
+            Task { @MainActor in
+                self?.applyHistoryWriteResult(result)
+            }
+        }
+    }
     private var pendingHistorySnapshot: [TranscriptHistoryEntry]?
     private var pendingRemovedHistoryEntries: [TranscriptHistoryEntry] = []
 
@@ -181,10 +190,12 @@ final class SessionState: ObservableObject {
     /// Retries the latest failed history save. Recording cleanup waits for this to succeed.
     @discardableResult
     func flushHistory() -> Bool {
-        guard let pendingHistorySnapshot else {
+        guard pendingHistorySnapshot != nil else {
             return isHistoryPersisted
         }
-        return persistHistory(pendingHistorySnapshot)
+        guard let result = historyWriter?.flush() else { return isHistoryPersisted }
+        applyHistoryWriteResult(result)
+        return isHistoryPersisted
     }
 
     private func historyDidChange(from previousEntries: [TranscriptHistoryEntry]) {
@@ -201,32 +212,23 @@ final class SessionState: ObservableObject {
 
         pendingHistorySnapshot = transcriptHistory
         isHistoryPersisted = false
-        _ = persistHistory(transcriptHistory)
+        historyRevision += 1
+        historyWriter?.submit(transcriptHistory, revision: historyRevision)
     }
 
-    private func persistHistory(_ entries: [TranscriptHistoryEntry]) -> Bool {
-        guard let historyStore else {
-            isHistoryPersisted = true
-            pendingHistorySnapshot = nil
-            historyPersistenceError = nil
-            releasePendingHistoryCleanup()
-            return true
-        }
-
-        do {
-            try historyStore.saveEntries(entries)
-            pendingHistorySnapshot = nil
-            historyPersistenceError = nil
-            isHistoryPersisted = true
-            releasePendingHistoryCleanup()
-            return true
-        } catch {
-            pendingHistorySnapshot = entries
+    private func applyHistoryWriteResult(_ result: TranscriptHistoryWriteResult) {
+        guard result.sequence > lastAppliedWriteSequence else { return }
+        lastAppliedWriteSequence = result.sequence
+        guard result.revision == historyRevision else { return }
+        if let message = result.errorMessage {
             isHistoryPersisted = false
-            let message = error.localizedDescription
             historyPersistenceError = message
             onHistoryPersistenceError?(message)
-            return false
+        } else {
+            pendingHistorySnapshot = nil
+            historyPersistenceError = nil
+            isHistoryPersisted = true
+            releasePendingHistoryCleanup()
         }
     }
 

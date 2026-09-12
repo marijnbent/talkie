@@ -62,3 +62,92 @@ final class TranscriptHistoryStore: TranscriptHistoryPersisting {
             .appendingPathComponent("transcript-history.json")
     }
 }
+
+struct TranscriptHistoryWriteResult: Sendable {
+    let revision: Int
+    let sequence: Int
+    let errorMessage: String?
+}
+
+final class TranscriptHistoryWriter: @unchecked Sendable {
+    private struct Snapshot {
+        let revision: Int
+        let entries: [TranscriptHistoryEntry]
+    }
+
+    private let store: any TranscriptHistoryPersisting
+    private let completion: @Sendable (TranscriptHistoryWriteResult) -> Void
+    private let queue = DispatchQueue(label: "Talkie.History.Persistence", qos: .utility)
+    private let lock = NSLock()
+    private var latestSnapshot: Snapshot?
+    private var pendingSnapshot: Snapshot?
+    private var workerRunning = false
+    private var lastResult: TranscriptHistoryWriteResult?
+    private var sequence = 0
+
+    init(
+        store: any TranscriptHistoryPersisting,
+        completion: @escaping @Sendable (TranscriptHistoryWriteResult) -> Void
+    ) {
+        self.store = store
+        self.completion = completion
+    }
+
+    func submit(_ entries: [TranscriptHistoryEntry], revision: Int) {
+        let shouldStart = lock.withLock {
+            let snapshot = Snapshot(revision: revision, entries: entries)
+            latestSnapshot = snapshot
+            pendingSnapshot = snapshot
+            guard !workerRunning else { return false }
+            workerRunning = true
+            return true
+        }
+        if shouldStart {
+            queue.async { [self] in
+                while let snapshot = takePendingSnapshot() {
+                    completion(write(snapshot))
+                }
+            }
+        }
+    }
+
+    func flush() -> TranscriptHistoryWriteResult? {
+        queue.async { [self] in
+            guard let latestSnapshot = lock.withLock({ latestSnapshot }) else { return }
+            if let lastResult, lastResult.revision == latestSnapshot.revision, lastResult.errorMessage == nil {
+                return
+            }
+            _ = write(latestSnapshot)
+        }
+        return queue.sync { lastResult }
+    }
+
+    private func takePendingSnapshot() -> Snapshot? {
+        lock.withLock {
+            guard let snapshot = pendingSnapshot else {
+                workerRunning = false
+                return nil
+            }
+            pendingSnapshot = nil
+            return snapshot
+        }
+    }
+
+    private func write(_ snapshot: Snapshot) -> TranscriptHistoryWriteResult {
+        let errorMessage: String?
+        do {
+            try store.saveEntries(snapshot.entries)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        sequence += 1
+        let result = TranscriptHistoryWriteResult(
+            revision: snapshot.revision,
+            sequence: sequence,
+            errorMessage: errorMessage
+        )
+        lastResult = result
+        return result
+    }
+}
