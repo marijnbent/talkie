@@ -22,6 +22,7 @@ final class GeneralSettingsViewModel: ObservableObject {
         AudioInputCatalog.resolvedSelection(settingsStore.audioInputSelection)
     }
     var deepgramLanguage: DeepgramLanguage { settingsStore.deepgramLanguage }
+    var assemblyAIKeyError: String? { settingsStore.assemblyAIKeyError }
     var transcriptionProvider: TranscriptionProvider { settingsStore.transcriptionProvider }
     var selectedLanguage: DeepgramLanguage {
         settingsStore.transcriptionProvider.normalizedLanguage(settingsStore.deepgramLanguage)

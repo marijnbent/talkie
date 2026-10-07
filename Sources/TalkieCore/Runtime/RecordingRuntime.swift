@@ -516,7 +516,8 @@ final class RecordingRuntime {
 
     private func startFinalizeWatchdog() {
         cancelFinalizeWatchdog()
-        let timeout = max(finalizeWatchdogTimeout, 3.5)
+        let providerTimeout: TimeInterval = pendingTranscriptionSettings?.provider == .assemblyAI ? 15.5 : 3.5
+        let timeout = max(finalizeWatchdogTimeout, providerTimeout)
         finalizeWatchdogTask = scheduler.schedule(after: timeout) { [weak self] in
             Task { @MainActor in
                 self?.finalizeIfNeeded()

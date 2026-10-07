@@ -81,6 +81,11 @@ struct GeneralSettingsView: View {
                     SecureField("Deepgram API Key", text: viewModel.binding(for: \.apiKey))
                 case .elevenLabs:
                     SecureField("ElevenLabs API Key", text: viewModel.binding(for: \.elevenLabsApiKey))
+                case .assemblyAI:
+                    SecureField("AssemblyAI API Key", text: viewModel.binding(for: \.assemblyAIApiKey))
+                    if let error = viewModel.assemblyAIKeyError {
+                        Text(error).foregroundStyle(.red)
+                    }
                 case .muse:
                     SecureField("Muse API Key", text: viewModel.binding(for: \.museApiKey))
                 }

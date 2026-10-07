@@ -48,6 +48,14 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var assemblyAIApiKey: String {
+        didSet {
+            assemblyAIKeyError = AssemblyAICredential.save(assemblyAIApiKey.trimmed)
+        }
+    }
+
+    @Published private(set) var assemblyAIKeyError: String?
+
     @Published var museApiKey: String {
         didSet {
             defaults.set(museApiKey, forKey: Self.museApiKeyKey)
@@ -226,6 +234,8 @@ final class SettingsStore: ObservableObject {
             elevenLabsApiKey
         case .muse:
             museApiKey
+        case .assemblyAI:
+            assemblyAIApiKey
         }
         return TranscriptionProviderSettings(
             provider: transcriptionProvider,
@@ -245,6 +255,7 @@ final class SettingsStore: ObservableObject {
             .flatMap(TranscriptionProvider.init(rawValue:)) ?? .deepgram
         elevenLabsApiKey = defaults.string(forKey: Self.elevenLabsApiKeyKey) ?? ""
         museApiKey = defaults.string(forKey: Self.museApiKeyKey) ?? ""
+        assemblyAIApiKey = AssemblyAICredential.load()
         escToCancelRecording = (defaults.object(forKey: Self.escToCancelRecordingKey) as? Bool) ?? true
         playSoundEffects = (defaults.object(forKey: Self.playSoundEffectsKey) as? Bool) ?? false
         muteMediaDuringRecording = (defaults.object(forKey: Self.muteMediaDuringRecordingKey) as? Bool) ?? false

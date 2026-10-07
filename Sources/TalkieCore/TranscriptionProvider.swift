@@ -4,6 +4,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
     case deepgram
     case elevenLabs
     case muse
+    case assemblyAI
 
     var id: String { rawValue }
 
@@ -13,6 +14,8 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             return "Deepgram"
         case .elevenLabs:
             return "ElevenLabs"
+        case .assemblyAI:
+            return "AssemblyAI"
         case .muse:
             return "Muse"
         }
@@ -24,6 +27,8 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             DeepgramLanguage.deepgramNova3Languages
         case .elevenLabs:
             DeepgramLanguage.elevenLabsLanguages
+        case .assemblyAI:
+            [.automatic, .afrikaans, .arabic, .cantonese, .catalan, .danish, .dutch, .english, .estonian, .finnish, .french, .galician, .german, .hebrew, .hindi, .italian, .japanese, .korean, .mandarinChinese, .marathi, .norwegian, .persian, .portuguese, .romanian, .russian, .spanish, .swedish, .turkish, .urdu, .vietnamese, .xhosa, .zulu]
         case .muse:
             DeepgramLanguage.museLanguages
         }
@@ -33,7 +38,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .deepgram:
             false
-        case .elevenLabs, .muse:
+        case .elevenLabs, .muse, .assemblyAI:
             true
         }
     }
@@ -47,7 +52,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .deepgram:
             []
-        case .elevenLabs, .muse:
+        case .elevenLabs, .muse, .assemblyAI:
             [.dutch, .english]
         }
     }
@@ -66,6 +71,8 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             return "Automatic uses Deepgram's multilingual streaming model; custom language limits are not available."
         case .elevenLabs, .muse:
             return "Automatic uses the selected languages only."
+        case .assemblyAI:
+            return "Automatic favors the selected languages and allows language switching."
         }
     }
 
@@ -86,7 +93,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
             default:
                 return .automatic
             }
-        case .elevenLabs:
+        case .elevenLabs, .assemblyAI:
             if languageOptions.contains(language) {
                 return language
             }
@@ -101,7 +108,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Sendable {
                  .chineseMandarinTraditionalHant:
                 return .mandarinChinese
             case .tagalog:
-                return .filipino
+                return self == .assemblyAI ? .automatic : .filipino
             default:
                 let baseCode = language.rawValue.split(separator: "-", maxSplits: 1).first.map(String.init)
                 return languageOptions.first(where: { $0.rawValue == baseCode }) ?? .automatic

@@ -20,6 +20,13 @@ enum PrerecordedTranscriptionClient {
                 apiKey: settings.apiKey,
                 language: normalizedLanguage
             )
+        case .assemblyAI:
+            return try await AssemblyAIPrerecordedClient.transcribe(
+                fileURL: fileURL,
+                apiKey: settings.apiKey,
+                language: normalizedLanguage,
+                automaticLanguageCandidates: settings.automaticLanguageCandidates
+            )
         case .muse:
             return try await MusePrerecordedClient.transcribe(
                 fileURL: fileURL,
